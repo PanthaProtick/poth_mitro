@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { Cpu, Database, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Database, Sparkles } from 'lucide-react';
 
 export default function Header({ health }) {
   const isHealthy = health?.status === 'healthy';

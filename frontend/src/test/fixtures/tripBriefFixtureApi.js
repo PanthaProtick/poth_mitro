@@ -18,17 +18,19 @@ const contexts = {
       name: 'Mirpur 10 to Shahbagh',
       is_synthetic: true,
       segments: [
-        { id: 'bc24d501-8e9b-48b4-871d-cb848a808caa', ordinal: 1, mode: 'MRT-6', origin: 'Mirpur 10', destination: 'Farmgate' },
-        { id: 'c34da1ca-e1ac-48ac-9433-03e3819b8cbe', ordinal: 2, mode: 'Walking', origin: 'Farmgate', destination: 'Farmgate bus stop' },
-        { id: '72a5f45c-8712-4a49-9a15-a1ab87f6142a', ordinal: 3, mode: 'Bus', origin: 'Farmgate', destination: 'Shahbagh' },
+        { id: 1, ordinal: 1, mode: 'MRT-6', origin: 'Mirpur 10', destination: 'Farmgate', route_reference_available: true, route_data_quality: 'approximate', route_id: 201 },
+        { id: 2, ordinal: 2, mode: 'Walking', origin: 'Farmgate', destination: 'Farmgate bus stop', route_reference_available: false, route_data_quality: null, route_id: null },
+        { id: 3, ordinal: 3, mode: 'Bus', origin: 'Farmgate', destination: 'Shahbagh', route_reference_available: true, route_data_quality: 'approximate', route_id: 101 },
       ],
     },
     evidence_total: 1,
     reports: [
       {
         id: '08356da9-7c9f-4f14-bfff-4c7e8c6f4f7b',
+        kind: 'waterlogging',
         title: 'Waterlogging reported near Farmgate',
         location: 'Farmgate (synthetic example)',
+        route_id: 101,
         mode: 'Road traffic',
         direction: null,
         observed_at: '2026-10-16T02:15:00Z',
@@ -40,6 +42,9 @@ const contexts = {
         confirmation_note: 'No second source is included in this example.',
         is_synthetic: true,
         version: 1,
+        created_at: '2026-10-16T02:15:00Z',
+        updated_at: '2026-10-16T02:15:00Z',
+        actor_label: 'synthetic_example',
       },
     ],
     reports_next_cursor: null,
@@ -55,15 +60,17 @@ const contexts = {
       name: 'Uttara North to Farmgate',
       is_synthetic: true,
       segments: [
-        { id: '9b00f4f1-c24f-48af-a8e4-682f9f6bb284', ordinal: 1, mode: 'MRT-6', origin: 'Uttara North', destination: 'Farmgate' },
+        { id: 4, ordinal: 1, mode: 'MRT-6', origin: 'Uttara North', destination: 'Farmgate', route_reference_available: true, route_data_quality: 'approximate', route_id: 202 },
       ],
     },
     evidence_total: 1,
     reports: [
       {
         id: '3e506dca-3ea1-4b18-9092-4b2617c2f050',
+        kind: 'road_closure',
         title: 'Road closure direction not recorded',
         location: 'A fictional junction',
+        route_id: 202,
         mode: 'Road traffic',
         direction: null,
         observed_at: null,
@@ -75,14 +82,19 @@ const contexts = {
         confirmation_note: null,
         is_synthetic: true,
         version: 2,
+        created_at: '2026-10-16T02:00:00Z',
+        updated_at: '2026-10-16T02:05:00Z',
+        actor_label: 'synthetic_example',
       },
     ],
     reports_next_cursor: null,
   },
   '0d29ca0f-3eec-4db4-b010-f4de81f66e3f': {
     as_of: '2026-10-16T02:30:00Z',
-    relevance: { state: 'not_affected', reason: 'No available report matched the known trip details. This does not confirm that the trip is clear.' },
-    trip: { id: '0d29ca0f-3eec-4db4-b010-f4de81f66e3f', name: 'Example with no matching reports', is_synthetic: true, segments: [] },
+    relevance: { state: 'not_affected', reason: 'No synthetic report matched the complete synthetic route reference. This does not confirm that the trip is clear.' },
+    trip: { id: '0d29ca0f-3eec-4db4-b010-f4de81f66e3f', name: 'Synthetic no-match example', is_synthetic: true, segments: [
+      { id: 5, ordinal: 1, mode: 'Bus', origin: 'Example origin', destination: 'Example destination', route_reference_available: true, route_data_quality: 'approximate', route_id: 303 },
+    ] },
     evidence_total: 0,
     reports: [],
     reports_next_cursor: null,
@@ -99,12 +111,11 @@ function wait(signal) {
   })
 }
 
-// This is the normalized service interface used by TripBriefScreen. The real
-// HTTP adapter unwraps TripListResponse.items before exposing the same array.
+// The fixture follows the same normalized paginated interface as the HTTP adapter.
 export const tripBriefFixtureApi = {
   async listTrips(_workspaceId, { signal } = {}) {
     await wait(signal)
-    return trips
+    return { items: trips, next_cursor: null }
   },
   async getContext(_workspaceId, tripId, { signal } = {}) {
     await wait(signal)

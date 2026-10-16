@@ -6,7 +6,7 @@ class ApiError extends Error {
   }
 }
 
-async function requestJson(path, { signal } = {}) {
+async function requestJson(path, { signal, method = 'GET', body, idempotencyKey } = {}) {
   const timeoutController = new AbortController()
   const timeoutId = window.setTimeout(() => timeoutController.abort(), 8000)
   const requestController = new AbortController()
@@ -16,26 +16,43 @@ async function requestJson(path, { signal } = {}) {
   timeoutController.signal.addEventListener('abort', abortFromTimeout, { once: true })
   try {
     const response = await fetch(path, {
+      method,
+      cache: method === 'GET' ? 'no-store' : 'default',
       credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
       signal: requestController.signal,
     })
     if (!response.ok) {
       let detail = ''
+      let errorBody = null
       try {
-        const body = await response.json()
-        detail = typeof body?.error?.message === 'string'
-          ? body.error.message
-          : typeof body.detail === 'string' ? body.detail : ''
+        errorBody = await response.json()
+        detail = typeof errorBody?.error?.message === 'string'
+          ? errorBody.error.message
+          : typeof errorBody.detail === 'string' ? errorBody.detail : ''
       } catch {
         // Keep the stable HTTP status when an upstream error has no JSON body.
       }
-      throw new ApiError(response.status, detail)
+      const error = new ApiError(response.status, detail)
+      error.code = errorBody?.error?.code || errorBody?.detail?.code
+      error.fields = errorBody?.error?.fields || []
+      error.meta = errorBody?.meta || errorBody?.error?.meta || null
+      error.apiResponded = Boolean(errorBody?.error?.code || errorBody?.request_id)
+      error.unknownOutcome = method !== 'GET' && response.status >= 500
+      throw error
     }
     return await response.json()
   } catch (error) {
     if (timeoutController.signal.aborted && !signal?.aborted) {
-      throw new ApiError(503, 'The request timed out')
+      const timeout = new ApiError(503, 'The request timed out; the write outcome is unknown')
+      timeout.unknownOutcome = method !== 'GET'
+      timeout.apiResponded = false
+      throw timeout
     }
     throw error
   } finally {
@@ -47,11 +64,25 @@ async function requestJson(path, { signal } = {}) {
 
 export const tripBriefApi = {
   async listTrips(_localScope, options) {
-    const result = await requestJson('/api/v1/trips', options)
-    return Array.isArray(result.items) ? result.items : []
+    const query = new URLSearchParams({ limit: '20' })
+    if (options?.cursor) query.set('cursor', options.cursor)
+    return requestJson(`/api/v1/trips?${query}`, options)
   },
   getContext(_localScope, tripId, options) {
-    return requestJson(`/api/v1/trips/${encodeURIComponent(tripId)}/context`, options)
+    const query = new URLSearchParams({ report_limit: '20' })
+    if (options?.reportCursor) query.set('report_cursor', options.reportCursor)
+    return requestJson(`/api/v1/trips/${encodeURIComponent(tripId)}/context?${query}`, options)
+  },
+  getReport(reportId) {
+    return requestJson(`/api/v1/incidents/${encodeURIComponent(reportId)}`)
+  },
+  createReport(payload, idempotencyKey) {
+    return requestJson('/api/v1/incidents', { method: 'POST', body: payload, idempotencyKey })
+  },
+  updateReport(reportId, payload, idempotencyKey) {
+    return requestJson(`/api/v1/incidents/${encodeURIComponent(reportId)}`, {
+      method: 'PATCH', body: payload, idempotencyKey,
+    })
   },
 }
 

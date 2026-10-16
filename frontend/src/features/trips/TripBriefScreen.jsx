@@ -15,6 +15,8 @@ import {
   WifiOff,
   Footprints,
 } from 'lucide-react'
+import IncidentEditor from './IncidentEditor'
+import { clearTripContexts, readTripContext, saveTripContext } from '../../services/tripContextCache'
 
 function formatTime(value) {
   if (!value) return 'Time not provided'
@@ -29,6 +31,10 @@ function formatTime(value) {
 
 function tripLabel(trip) {
   return trip.label || trip.name || `${trip.origin || 'Unknown start'} to ${trip.destination || 'Unknown destination'}`
+}
+
+function apiResponded(error) {
+  return Boolean(error.apiResponded || (error.status && error.status < 500))
 }
 
 function getResultState(context) {
@@ -60,61 +66,141 @@ export default function TripBriefScreen(props) {
 
 function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
   const [trips, setTrips] = useState([])
-  const [selectedTripId, setSelectedTripId] = useState('')
+  const [selectedTripId, setSelectedTripId] = useState(() => {
+    try { return demo ? '' : localStorage.getItem(`dhakapath:last-trip:${workspaceId || ''}`) || '' }
+    catch { return '' }
+  })
   const [context, setContext] = useState(null)
   const [lastFetchedAt, setLastFetchedAt] = useState(null)
+  const [cacheRecord, setCacheRecord] = useState(null)
+  const [tripCursor, setTripCursor] = useState(null)
+  const [reportCursor, setReportCursor] = useState(null)
+  const [failedTripCursor, setFailedTripCursor] = useState(null)
+  const [reportPageError, setReportPageError] = useState(null)
+  const [failedReportCursor, setFailedReportCursor] = useState(null)
   const [loadingTrips, setLoadingTrips] = useState(true)
+  const [loadingMoreTrips, setLoadingMoreTrips] = useState(false)
+  const [loadingMoreReports, setLoadingMoreReports] = useState(false)
   const [loadingContext, setLoadingContext] = useState(false)
   const [tripError, setTripError] = useState(null)
   const [contextError, setContextError] = useState(null)
   const [stale, setStale] = useState(false)
-  const [isOnline, setIsOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
+  const [apiReachable, setApiReachable] = useState(null)
+  const [apiReady, setApiReady] = useState(null)
+  const [browserOnline, setBrowserOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
   const [notice, setNotice] = useState('')
+  const [savingReport, setSavingReport] = useState(false)
+  const [contextRevision, setContextRevision] = useState(0)
   const requestRef = useRef(null)
+  const reportsControllerRef = useRef(null)
+  const restoreSelectionRef = useRef(Boolean(selectedTripId))
   const workspaceKey = workspaceId || ''
 
-  const loadTrips = useCallback(async (signal) => {
+  const loadTrips = useCallback(async ({ signal, cursor = null, append = false } = {}) => {
     if (!workspaceKey) return
     try {
-      const result = await api.listTrips(workspaceKey, { signal })
-      setTrips(result)
-      setSelectedTripId((current) => result.some((trip) => trip.id === current) ? current : '')
+      const result = await api.listTrips(workspaceKey, { signal, cursor })
+      if (signal?.aborted) return
+      setApiReachable(true)
+      setApiReady(true)
+      setTripError(null)
+      setFailedTripCursor(null)
+      setTrips((current) => {
+        const combined = append ? [...current, ...(result.items || [])] : (result.items || [])
+        return [...new Map(combined.map((trip) => [trip.id, trip])).values()]
+      })
+      setTripCursor(result.next_cursor || null)
     } catch (error) {
-      if (error.name !== 'AbortError') setTripError(error)
+      if (error.name !== 'AbortError') {
+        setTripError(error)
+        setFailedTripCursor(append && error.status !== 400 ? cursor : null)
+        setApiReachable(apiResponded(error))
+        if (!apiResponded(error) || error.status >= 500) setApiReady(false)
+      }
     } finally {
-      if (!signal?.aborted) setLoadingTrips(false)
+      if (!signal?.aborted) { setLoadingTrips(false); setLoadingMoreTrips(false) }
     }
   }, [api, workspaceKey])
 
-  const loadContext = useCallback(async (tripId) => {
-    if (!workspaceKey || !tripId) return
-    requestRef.current?.abort()
-    const controller = new AbortController()
-    requestRef.current = controller
-    setLoadingContext(true)
-    setContextError(null)
-    setNotice('')
+  const restoreCachedContext = useCallback(async (tripId) => {
+    if (demo || !tripId) return false
     try {
-      const result = await api.getContext(workspaceKey, tripId, { signal: controller.signal })
+      const record = await readTripContext(workspaceKey, tripId)
+      if (!record) return false
+      setContext(record.context)
+      setCacheRecord(record)
+      setLastFetchedAt(record.cached_at)
+      setReportCursor(record.reports_next_cursor)
+      setStale(true)
+      setTrips((current) => current.some((trip) => trip.id === tripId) ? current : [...current, record.context.trip])
+      return true
+    } catch {
+      setNotice('The saved trip copy could not be read from this browser. Local storage may be unavailable or full.')
+      return false
+    }
+  }, [demo, workspaceKey])
+
+  const loadContext = useCallback(async (tripId, { reportCursor: cursor = null, append = false } = {}) => {
+    if (!workspaceKey || !tripId) return
+    if (!append) requestRef.current?.abort()
+    else reportsControllerRef.current?.abort()
+    const controller = new AbortController()
+    if (append) reportsControllerRef.current = controller
+    else requestRef.current = controller
+    if (append) { setLoadingMoreReports(true); setReportPageError(null) }
+    else { setLoadingContext(true); setLoadingMoreReports(false); setContextError(null); setReportPageError(null); setFailedReportCursor(null); setNotice('') }
+    try {
+      const result = await api.getContext(workspaceKey, tripId, { signal: controller.signal, reportCursor: cursor })
       if (controller.signal.aborted) return
-      setContext(result)
-      setLastFetchedAt(new Date().toISOString())
+      setApiReachable(true)
+      setApiReady(true)
+      setContext((current) => {
+        if (!append) return result
+        if (!current || current.trip?.id !== tripId) return current
+        const merged = [...current.reports, ...(result.reports || [])]
+        return { ...current, reports: [...new Map(merged.map((report) => [report.id, report])).values()], reports_next_cursor: result.reports_next_cursor }
+      })
+      const nextCursor = result.reports_next_cursor || null
+      setReportCursor(nextCursor)
+      setFailedReportCursor(null)
+      const mergedContext = append && context?.trip?.id === tripId
+        ? { ...context, reports: [...new Map([...(context.reports || []), ...(result.reports || [])].map((report) => [report.id, report])).values()], reports_next_cursor: nextCursor }
+        : result
+      const fetchedAt = new Date().toISOString()
+      setLastFetchedAt(fetchedAt)
+      if (!append) setContextRevision((value) => value + 1)
+      if (!demo) saveTripContext(workspaceKey, tripId, mergedContext)
+        .then(setCacheRecord)
+        .catch(() => setNotice('Trip data loaded, but this browser could not save its offline copy.'))
       setStale(false)
     } catch (error) {
       if (error.name === 'AbortError') return
-      setContextError(error)
-      if (context) setStale(true)
-      if (!navigator.onLine) setIsOnline(false)
+      setApiReachable(apiResponded(error))
+      if (!apiResponded(error) || error.status >= 500) setApiReady(false)
+      if (append) {
+        setReportPageError(error)
+        setFailedReportCursor(error.status === 400 ? null : cursor)
+        if (!error.status || error.status >= 500) setStale(true)
+      } else {
+        setContextError(error)
+        if (context?.trip?.id === tripId) setStale(true)
+        else if (!error.status || error.status >= 500) await restoreCachedContext(tripId)
+        else if (error.status === 404) {
+          setSelectedTripId('')
+          setStale(false)
+          try { localStorage.removeItem(`dhakapath:last-trip:${workspaceKey}`) } catch { /* Selection still clears in this tab. */ }
+        }
+      }
     } finally {
-      if (!controller.signal.aborted) setLoadingContext(false)
+      if (!controller.signal.aborted) { setLoadingContext(false); setLoadingMoreReports(false) }
     }
-  }, [api, context, workspaceKey])
+  }, [api, context, demo, restoreCachedContext, workspaceKey])
 
   useEffect(() => {
     const controller = new AbortController()
     requestRef.current?.abort()
     Promise.resolve().then(() => {
-      if (!controller.signal.aborted) loadTrips(controller.signal)
+      if (!controller.signal.aborted) loadTrips({ signal: controller.signal })
     })
     return () => {
       controller.abort()
@@ -123,15 +209,21 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
   }, [workspaceKey, loadTrips])
 
   useEffect(() => {
-    const onOnline = () => { setIsOnline(true); setNotice('Connection restored. Refresh to check for updates.') }
-    const onOffline = () => { setIsOnline(false); setStale(Boolean(context)) }
+    if (loadingTrips || !restoreSelectionRef.current || !selectedTripId || context?.trip?.id === selectedTripId) return
+    restoreSelectionRef.current = false
+    void loadContext(selectedTripId)
+  }, [loadingTrips, selectedTripId, context, loadContext])
+
+  useEffect(() => {
+    const onOnline = () => { setBrowserOnline(true); setNotice('Browser reports a network connection. Checking the local service still requires Refresh.') }
+    const onOffline = () => { setBrowserOnline(false) }
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
     return () => {
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
     }
-  }, [context])
+  }, [])
 
   const selectedTrip = trips.find((trip) => trip.id === selectedTripId)
   const resultState = getResultState(context)
@@ -156,9 +248,21 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
 
   function handleTripChange(event) {
     const nextId = event.target.value
+    restoreSelectionRef.current = false
+    requestRef.current?.abort()
+    reportsControllerRef.current?.abort()
     setSelectedTripId(nextId)
+    if (!demo) {
+      try { localStorage.setItem(`dhakapath:last-trip:${workspaceKey}`, nextId) } catch { /* Selection still works for this tab. */ }
+    }
     setContext(null)
     setLastFetchedAt(null)
+    setLoadingContext(false)
+    setLoadingMoreReports(false)
+    setCacheRecord(null)
+    setReportCursor(null)
+    setReportPageError(null)
+    setFailedReportCursor(null)
     setContextError(null)
     setStale(false)
     setNotice('')
@@ -169,17 +273,85 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
     await loadContext(selectedTripId)
   }
 
-  function handleRefresh() {
-    if (selectedTripId) loadContext(selectedTripId)
+  async function handleSaveReport({ reportId, payload, idempotencyKey }) {
+    if (apiReady !== true) {
+      const unavailable = new Error('The local API is unavailable. Refresh the trip before submitting a write.')
+      unavailable.status = 503
+      unavailable.unknownOutcome = false
+      throw unavailable
+    }
+    setSavingReport(true)
+    try {
+      if (reportId) await api.updateReport(reportId, payload, idempotencyKey)
+      else await api.createReport(payload, idempotencyKey)
+      setApiReachable(true)
+      setApiReady(true)
+      await loadContext(selectedTripId)
+    } catch (error) {
+      setApiReachable(apiResponded(error))
+      if (!apiResponded(error) || error.status >= 500) setApiReady(false)
+      throw error
+    } finally {
+      setSavingReport(false)
+    }
+  }
+
+  async function handleRefresh(reportId = null) {
+    if (!selectedTripId) return null
+    await loadContext(selectedTripId)
+    if (reportId && api.getReport) {
+      try {
+        const latest = await api.getReport(reportId)
+        setApiReachable(true)
+        setApiReady(true)
+        return latest
+      } catch { return null }
+    }
+    return null
   }
 
   function handleRetryTrips() {
-    setLoadingTrips(true)
     setTripError(null)
-    loadTrips()
+    if (failedTripCursor) {
+      setLoadingMoreTrips(true)
+      void loadTrips({ cursor: failedTripCursor, append: true })
+    } else {
+      setLoadingTrips(true)
+      void loadTrips()
+    }
+  }
+
+  function handleLoadMoreTrips() {
+    if (!tripCursor || loadingMoreTrips) return
+    setLoadingMoreTrips(true)
+    void loadTrips({ cursor: tripCursor, append: true })
+  }
+
+  function handleLoadMoreReports() {
+    if (!reportCursor || loadingMoreReports || !selectedTripId) return
+    void loadContext(selectedTripId, { reportCursor, append: true })
+  }
+
+  function handleRetryReports() {
+    if (failedReportCursor) void loadContext(selectedTripId, { reportCursor: failedReportCursor, append: true })
+    else void loadContext(selectedTripId)
+  }
+
+  async function handleClearCache() {
+    try {
+      await clearTripContexts(workspaceKey)
+      setCacheRecord(null)
+      setNotice('Saved trip copies were cleared from this browser.')
+    } catch { setNotice('This browser could not clear its saved trip copies.') }
   }
 
   const tripSegments = context?.trip?.segments || []
+  const routeOptions = [...new Map(tripSegments
+    .filter((segment) => segment.route_id != null)
+    .map((segment) => [segment.route_id, {
+      id: segment.route_id,
+      label: `${segment.mode || 'Route'} · ${segment.origin} to ${segment.destination}`,
+    }])).values()]
   const reportsEmpty = context && reports.length === 0
   const ResultIcon = resultCopy.icon
 
@@ -204,7 +376,7 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
           <div>
             <p className="eyebrow">TRIP INFORMATION</p>
             <h1>Trip brief</h1>
-            <p className="intro-copy">Use this prototype from this computer. Trip and report details come from its local database.</p>
+            <p className="intro-copy">{demo ? 'Synthetic fixture data for visual review only; this preview does not write to the local API.' : 'Use this prototype from this computer. Trip and report details come from its local database.'}</p>
           </div>
           {demo ? <span className="demo-chip"><Info size={15} aria-hidden="true" /> Synthetic preview</span> : null}
         </div>
@@ -219,7 +391,8 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
           </section>
         ) : (
           <>
-            {notice && isOnline ? <p className="sr-only" role="status">{notice}</p> : null}
+            {notice ? <p className="sr-only" role="status">{notice}</p> : null}
+            <p className="service-hint" role="status">{demo ? 'Data source: synthetic local preview fixture' : `Local API: ${apiReachable === true ? 'reachable' : apiReachable === false ? 'unreachable' : 'checking'} · Readiness: ${apiReady === true ? 'ready' : apiReady === false ? 'unavailable' : 'unknown'}`} · Browser network hint: {browserOnline ? 'online' : 'offline'} (informational only)</p>
 
             <section className="trip-picker-panel" aria-labelledby="trip-picker-title">
               <div className="section-heading">
@@ -228,7 +401,7 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
                   <h2 id="trip-picker-title">Choose a trip</h2>
                 </div>
                 {context ? (
-                  <button className="button button-quiet" onClick={handleRefresh} disabled={loadingContext || !isOnline}>
+                  <button className="button button-quiet" onClick={() => handleRefresh()} disabled={loadingContext}>
                     <RefreshCw size={17} aria-hidden="true" className={loadingContext ? 'spin' : ''} />
                     <span>Refresh</span>
                   </button>
@@ -245,16 +418,17 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
               </div>
               {tripError ? (
                 <div className="inline-error" role="alert">
-                  <span>Trip information could not be loaded.</span>
-                  {isOnline ? <button className="text-button" onClick={handleRetryTrips}>Try again</button> : null}
+                  <span>{tripError.status === 400 ? 'The trip-list cursor was invalid or expired; restart from the first page.' : failedTripCursor ? 'The next trip page could not be loaded from the local service.' : 'The local trip list could not be loaded.'}</span>
+                  <button className="text-button" onClick={handleRetryTrips}>{tripError.status === 400 ? 'Reload trips' : 'Try again'}</button>
                 </div>
               ) : null}
+              {tripCursor ? <button className="button button-quiet" onClick={handleLoadMoreTrips} disabled={loadingMoreTrips || Boolean(tripError)}>{loadingMoreTrips ? 'Loading trips…' : 'Load more trips'}</button> : null}
               {trips.length === 0 && !loadingTrips && !tripError ? (
                 <p className="helper-copy">No prepared trips are available yet.</p>
               ) : null}
               <div className="check-row">
                 <p className="helper-copy">The comparison uses saved trip and report details.</p>
-                <button className="button button-primary" onClick={handleCheck} disabled={!selectedTripId || loadingContext || !isOnline}>
+                <button className="button button-primary" onClick={handleCheck} disabled={!selectedTripId || loadingContext}>
                   {loadingContext ? <RefreshCw size={17} aria-hidden="true" className="spin" /> : <ArrowRight size={17} aria-hidden="true" />}
                   <span>{loadingContext ? 'Checking…' : 'Check this trip'}</span>
                 </button>
@@ -269,12 +443,13 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
             ) : null}
 
             {context ? (
+              <>
               <div className="brief-grid" aria-live="polite" aria-busy={loadingContext}>
                 <section className={`result-card result-${resultState}`} aria-labelledby="result-title">
                   {stale || contextError ? (
                     <div className="stale-strip" role={contextError ? 'alert' : 'status'}>
-                      {isOnline ? <AlertTriangle size={16} aria-hidden="true" /> : <WifiOff size={16} aria-hidden="true" />}
-                      <span><strong>{isOnline ? 'Refresh failed' : 'Offline'} — showing the last successful result</strong> · Loaded {formatTime(lastFetchedAt || context.as_of)}. This copy may be out of date.</span>
+                      {apiReachable === false ? <WifiOff size={16} aria-hidden="true" /> : <AlertTriangle size={16} aria-hidden="true" />}
+                      <span><strong>{apiReady === false ? 'Local API unavailable — showing the last successful result' : 'Refresh failed — showing the last successful result'}</strong> · Cached {formatTime(cacheRecord?.cached_at || lastFetchedAt || context.as_of)}; server checked {formatTime(context.as_of)}. This copy is stale.</span>
                     </div>
                   ) : null}
                   <div className="result-content">
@@ -285,6 +460,7 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
                       <p className="result-explanation">{resultCopy.body}</p>
                     </div>
                   </div>
+                  {!demo && cacheRecord ? <button className="text-button cache-clear" onClick={handleClearCache}>Clear saved trip copies</button> : null}
                   <div className="result-meta">
                     <span><Clock3 size={15} aria-hidden="true" /> Server checked {formatTime(context.as_of)} · Loaded {formatTime(lastFetchedAt || context.as_of)}</span>
                     {demo ? <span className="data-origin">Synthetic example</span> : null}
@@ -349,9 +525,26 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
                       ))}
                     </ul>
                   )}
+                  <p className="helper-copy">Showing {reports.length} of {context.evidence_total} reports{reportCursor ? ' · more server pages are available' : ' · all report pages loaded'}{stale && cacheRecord && !cacheRecord.reports_complete ? ' (the saved copy was partial)' : ''}.</p>
+                  {reportPageError ? <div className="inline-error" role="alert"><span>{reportPageError.status === 400 ? 'The report cursor expired or was invalid.' : 'The next report page could not be loaded.'}</span><button className="text-button" onClick={handleRetryReports}>{failedReportCursor ? 'Try again' : 'Reload report evidence'}</button></div> : null}
+                  {reportCursor ? <button className="button button-quiet" onClick={handleLoadMoreReports} disabled={loadingMoreReports || stale || Boolean(reportPageError)}>{loadingMoreReports ? 'Loading reports…' : 'Load more reports'}</button> : null}
                   <p className="provenance-note"><Info size={15} aria-hidden="true" /> The result compares the available saved details. It does not independently verify a report or guarantee route safety.</p>
                 </section>
               </div>
+              <IncidentEditor
+                reports={reports}
+                routeOptions={routeOptions}
+                onSubmit={handleSaveReport}
+                pending={savingReport}
+                enabled={!demo && apiReady === true && !stale}
+                apiUnavailable={apiReady !== true || stale}
+                onRefresh={handleRefresh}
+                contextRevision={contextRevision}
+                scopeId={workspaceKey}
+                tripId={selectedTripId}
+                canReconcile={apiReady === true && !stale}
+              />
+              </>
             ) : null}
 
             <p className="page-footnote">Reports can become outdated. Check the observation time and source before relying on a claim.</p>
