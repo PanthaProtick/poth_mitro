@@ -1,5 +1,34 @@
 # DhakaPath MVP architecture
 
+- FastAPI and SQLite run locally; Clerk, Neon, and Render are deferred.
+- The service is single-operator and binds to loopback.
+- Module C implements persistent schema, map import, demo seed, and health checks.
+- The map summary endpoint reads committed catalog counts without exposing geometry.
+- Trip/report workflow routes and frontend persistence remain future work.
+
+> **Architecture status update (2026-10-16):** The architecture below records the superseded Clerk + Neon + Render hosted design. The current phase is local-first SQLite, single-operator, and localhost-only as specified in [`../backend/implementation_plan.md`](../backend/implementation_plan.md). Do not use the historical provider, workspace, or hosted-security sections as implementation requirements. Revisit them only in a separately approved hosted phase.
+
+## Current local architecture (authoritative)
+
+**Quick summary:** The target local architecture has Vite on loopback proxying to FastAPI, which will apply deterministic rules over a local SQLite file. Module C currently implements the persistent schema, map import, demo seed, health routes, and a read-only imported-catalog summary; trip/report workflow endpoints and the frontend connection are not implemented yet.
+
+```text
+React/Vite (127.0.0.1:5173) -- /api/v1 --> FastAPI (127.0.0.1:8000)
+                                                |
+                                                +--> SQLite: backend/data/dhakapath.db
+```
+
+- SQLite file path comes from `DATABASE_PATH`, defaulting to `backend/data/dhakapath.db`; `backend/data/` is gitignored. Keep disposable test DBs on separate paths.
+- Tables: `TransitRoute`, `TransitStop`, `RouteSegment` (global reference data); `Trip`, `TripSegment` (prepared local demo data); `IncidentReport`, `IncidentEvent`, and optional `MutationReceipt` (local report data). No Workspace or LocalUser tables in this phase.
+- Use portable SQL types and JSON text for ordered coordinates; preserve source file/version/checksum and mark map references approximate. `TripSegment.route_segment_id` stays nullable when not grounded.
+- Bind both servers to `127.0.0.1`. Do not enable CORS for arbitrary origins or expose the unauthenticated API beyond the local machine.
+- `/health/live` checks process response only. `/health/ready` checks required local config and a bounded SQLite `SELECT 1` after migrations.
+- Hosted PostgreSQL/auth/deployment is a future decision and requires a separate approved phase with migration and security review.
+
+The sections after this block describe the superseded hosted architecture and are historical only.
+
+## Historical hosted architecture (not current)
+
 - **One deployable application:** React builds to static files served by FastAPI; the browser uses `/api` on the same origin.
 - **One real data path:** FastAPI validates, authorizes, and applies deterministic rules before reading or writing remote Neon PostgreSQL.
 - **Accounts are required:** A traveller and a report editor share workspace data, so both use real Clerk accounts and verified membership.
@@ -35,12 +64,17 @@
 | Entity | Minimum purpose and key rules |
 |---|---|
 | `Workspace` | One row per shared Clerk organization; its stable ID is the Clerk `org_id` string. |
+| `TransitRoute` | Global/reference catalog row for a source route, with stable source key, mode/name, source dataset/version, original source status, and approximate-data label. It is not workspace-owned trip content. |
+| `TransitStop` | Global/reference stop point with stable source key, name/aliases, named latitude/longitude, and source provenance. Do not merge distinct named stops solely because coordinates are close. |
+| `RouteSegment` | Ordered source segment between catalog stops; stores source key, route, ordinal, endpoint stop references, and ordered geometry points as JSONB named latitude/longitude values. The source CRS/datum remains unknown unless verified. |
 | `Trip` | A prepared demo journey owned by one workspace. |
-| `TripSegment` | Ordered part of a trip; foreign key to `Trip`, unique `(trip_id, ordinal)`. |
+| `TripSegment` | Ordered part of a trip; foreign key to `Trip`, unique `(trip_id, ordinal)`, and nullable `route_segment_id` pointing to a known catalog segment when grounded by the map data. Unsupported connections remain unknown. |
 | `IncidentReport` | Workspace-scoped disruption with known place/mode/direction, `observed_at` nullable, source type, lifecycle status, creator/updater Clerk IDs, integer `version`, and timestamps. |
 | `IncidentEvent` | Append-only change record with report/workspace IDs, actor Clerk ID, old/new state, reason, and event time. Insert it in the same transaction as the report update. |
 
 Do not store passwords, Clerk secret keys, or a duplicate local credential system. Synthetic trip and incident content may be seeded, but it must be visibly labeled synthetic. A synthetic seed must not overwrite a user edit.
+
+**Map reference provenance:** The checked-in `Map Data/json/transit-data.json` is the canonical source for the MVP's 16 station points and two bus routes. The Bikolpo/Uttara CSVs are variable-width, headerless cross-check inputs; the metro CSV's 14 rows do not currently map to the 16 JSON stations, and `Roadmap-Dhaka.csv` has no colocated schema/provenance description. The backend importer normalizes JSON coordinates (latitude/longitude) and route CSV coordinates (longitude/latitude) into named fields, preserves source file/version/checksum and approximate status, excludes unresolved metro geometry and the road CSV, and never presents these references as live or field-verified. The current trip API does not expose route geometry.
 
 **API contract:** [api_contracts.md](api_contracts.md) defines the list/detail/read/write routes, exact models, Clerk bearer verification, workspace/role checks, pagination, errors, and persistence rules. The server compares every supplied `workspace_id` with the verified active organization; a mismatch is denied. Never trust a role or workspace ID merely because the browser sent it. These routes remain proposed until implemented and verified.
 

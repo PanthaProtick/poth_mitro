@@ -24,7 +24,9 @@ async function requestJson(path, { signal } = {}) {
       let detail = ''
       try {
         const body = await response.json()
-        detail = typeof body.detail === 'string' ? body.detail : ''
+        detail = typeof body?.error?.message === 'string'
+          ? body.error.message
+          : typeof body.detail === 'string' ? body.detail : ''
       } catch {
         // Keep the stable HTTP status when an upstream error has no JSON body.
       }
@@ -43,17 +45,13 @@ async function requestJson(path, { signal } = {}) {
   }
 }
 
-function workspacePath(workspaceId) {
-  return `/api/v1/workspaces/${encodeURIComponent(workspaceId)}`
-}
-
 export const tripBriefApi = {
-  async listTrips(workspaceId, options) {
-    const result = await requestJson(`${workspacePath(workspaceId)}/trips`, options)
+  async listTrips(_localScope, options) {
+    const result = await requestJson('/api/v1/trips', options)
     return Array.isArray(result.items) ? result.items : []
   },
-  getContext(workspaceId, tripId, options) {
-    return requestJson(`${workspacePath(workspaceId)}/trips/${encodeURIComponent(tripId)}/context`, options)
+  getContext(_localScope, tripId, options) {
+    return requestJson(`/api/v1/trips/${encodeURIComponent(tripId)}/context`, options)
   },
 }
 

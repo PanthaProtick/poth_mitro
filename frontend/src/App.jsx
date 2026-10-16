@@ -21,8 +21,8 @@ export default function App() {
     return (
       <TripBriefScreen
         api={preview}
-        workspaceId="org_demo_synthetic"
-        workspaceName="Synthetic demo workspace"
+        workspaceId="local-preview"
+        workspaceName="Synthetic local preview"
         demo
       />
     )
@@ -31,7 +31,7 @@ export default function App() {
   return (
     <TripBriefScreen
       api={tripBriefApi}
-      workspaceId={null}
+      workspaceId="local-single-operator"
       workspaceName={null}
     />
   )

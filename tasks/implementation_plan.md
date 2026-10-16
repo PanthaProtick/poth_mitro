@@ -1,5 +1,19 @@
 # Four-hour implementation plan
 
+> **Schedule/scope superseded (2026-10-16):** The user canceled Clerk and Neon and requested local-first implementation. This historical four-hour hosted schedule and its Clerk/Neon/Render acceptance gates are not current instructions. Follow [`../backend/implementation_plan.md`](../backend/implementation_plan.md) for the SQLite, localhost-only phase. Revise team work cards and timing before implementation; do not start the old schedule.
+
+## Current local implementation handoff
+
+**Quick summary:** The current implementation target is a local-only, persistent DhakaPath slice. Module A is documentation/contract work; Modules B–H must wait for the user's confirmation after each completed module.
+
+- **Runtime:** FastAPI on `127.0.0.1:8000`; Vite/React on `127.0.0.1:5173`; SQLite at `backend/data/dhakapath.db` via `DATABASE_PATH`.
+- **Access:** One local operator; no login, roles, or workspace. Do not bind beyond loopback.
+- **Ownership:** Pantha owns SQLite/config/migrations/map import/health; Tanvir owns API schemas/routes/domain rules and frontend API integration; Yousha owns Trip Brief UI/accessibility/browser review. Coordinate shared files before editing.
+- **Handoff order:** Module B creates the deterministic map manifest/importer. Module C builds SQLite models/migrations/seeds. Module D enforces/document local-only access boundary. Modules E/F implement contracted reads/writes. Module G local health/startup. Module H records acceptance. No provider setup or hosted deployment in this phase.
+- **Current local commands:** See the authoritative local setup in `docs/deployment_setup.md`; do not follow the historical timed plan below.
+
+The schedule and work orders below are retained as historical notes only.
+
 - **Scope:** one signed-in traveller reads a prepared trip and its disruption context; an authorized editor saves a report; another member sees the saved change after refresh.
 - **First gate:** by minute 60, prove one real Clerk-authenticated write to remote Neon and a fresh authorized read; no mock, SQLite, or in-memory product path.
 - **Team:** Pantha owns data, server auth, and deploy foundations; Tanvir owns API integration and end-to-end coordination; Yousha owns the representative UI and browser review.

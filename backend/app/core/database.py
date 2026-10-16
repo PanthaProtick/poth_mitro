@@ -1,53 +1,48 @@
-﻿import logging
-from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import declarative_base
+from collections.abc import Generator
+from pathlib import Path
+
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
 
-Base = declarative_base()
+def resolve_database_path(value: str = settings.DATABASE_PATH) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    return path.resolve()
 
-engine = None
-AsyncSessionLocal = None
 
-if settings.DATABASE_URL:
-    db_url = settings.DATABASE_URL
-    # Ensure asyncpg driver prefix is used
-    if db_url.startswith("postgresql://"):
-        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    elif db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+def make_engine(database_path: str | Path | None = None) -> Engine:
+    path = resolve_database_path(str(database_path or settings.DATABASE_PATH))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db_engine = create_engine(
+        f"sqlite:///{path.as_posix()}",
+        connect_args={"check_same_thread": False, "timeout": 5},
+        pool_pre_ping=True,
+    )
 
-    try:
-        engine = create_async_engine(
-            db_url,
-            echo=settings.DEBUG,
-            future=True,
-            pool_pre_ping=True
-        )
-        AsyncSessionLocal = async_sessionmaker(
-            engine,
-            class_=AsyncSession,
-            expire_on_commit=False,
-            autoflush=False
-        )
-        logger.info("Configured Async Database Engine for Neon Postgres.")
-    except Exception as e:
-        logger.error(f"Failed to create database engine: {e}")
-else:
-    logger.warning("DATABASE_URL is not set. Database features will operate in standby mode.")
+    @event.listens_for(db_engine, "connect")
+    def enable_sqlite_safety(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    if AsyncSessionLocal is None:
-        yield None
-        return
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    return db_engine
+
+
+engine = make_engine()
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+def get_db() -> Generator[Session, None, None]:
+    with SessionLocal() as session:
+        yield session
+
+
+def database_probe() -> None:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))

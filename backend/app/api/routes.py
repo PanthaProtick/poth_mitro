@@ -1,111 +1,97 @@
-﻿import datetime
-import uuid
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends
-from app.core.config import settings
-from app.core.database import get_db, AsyncSession
-from app.models.schemas import (
-    HealthStatus,
-    ChatRequest,
-    ChatResponse,
-    IdeaGeneratorRequest,
-    HackathonIdea,
-    ItemCreate,
-    ItemResponse,
-)
-from app.services.gemini import gemini_service
+"""Small local read endpoint for checking imported approximate map references."""
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.db.models import MapDataImport, MapDataSourceFile, RouteSegment, TransitRoute, TransitStop
+from app.models.schemas import IncidentCreate, IncidentEvidenceView, IncidentUpdate, TripContextResponse, TripListResponse
+from app.services.incidents import create_report, get_report, update_report
+from app.services.trips import get_trip_context, list_trips
 
 router = APIRouter()
 
-# In-memory store for rapid hackathon testing before database connection is set up
-_in_memory_items: List[ItemResponse] = [
-    ItemResponse(
-        id=str(uuid.uuid4()),
-        title="Hackathon Starter Architecture",
-        description="FastAPI + React + Neon Postgres + Gemini SDK setup.",
-        tags=["Template", "FastAPI", "React", "Gemini"],
-        created_at=datetime.datetime.now(datetime.timezone.utc).isoformat()
-    ),
-    ItemResponse(
-        id=str(uuid.uuid4()),
-        title="Prompt Engineering Pipeline",
-        description="Structured JSON output schemas using Gemini 2.5/3.8 Flash.",
-        tags=["AI", "Gemini", "Pydantic"],
-        created_at=datetime.datetime.now(datetime.timezone.utc).isoformat()
-    )
-]
 
-@router.get("/health", response_model=HealthStatus, summary="API Health Check")
-async def health_check():
-    return HealthStatus(
-        status="healthy",
-        project_name=settings.PROJECT_NAME,
-        environment=settings.ENV,
-        database_configured=bool(settings.DATABASE_URL and "neon" in settings.DATABASE_URL.lower()),
-        gemini_configured=gemini_service.is_configured(),
-        version="1.0.0"
-    )
+@router.post("/incidents", status_code=201, summary="Create a locally stored incident report")
+def incident_create(
+    request: IncidentCreate,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    session: Session = Depends(get_db),
+):
+    status, body = create_report(session, idempotency_key, request)
+    return JSONResponse(status_code=status, content=body)
 
-@router.post("/chat", response_model=ChatResponse, summary="Send message to Gemini")
-async def chat(request: ChatRequest):
-    result = await gemini_service.generate_chat(
-        message=request.message,
-        system_instruction=request.system_instruction
-    )
-    return ChatResponse(
-        reply=result["reply"],
-        model=result["model"],
-        conversation_id=request.conversation_id,
-        is_mock=result["is_mock"]
-    )
 
-@router.post("/generate-idea", response_model=HackathonIdea, summary="Generate structured hackathon concept")
-async def generate_idea(request: IdeaGeneratorRequest):
-    return await gemini_service.generate_structured_idea(
-        topic=request.topic,
-        target_audience=request.target_audience
-    )
+@router.patch("/incidents/{incident_id}", summary="Correct or update a local incident report")
+def incident_update(
+    incident_id: str,
+    request: IncidentUpdate,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    session: Session = Depends(get_db),
+):
+    status, body = update_report(session, incident_id, idempotency_key, request)
+    return JSONResponse(status_code=status, content=body)
 
-@router.get("/items", response_model=List[ItemResponse], summary="List demo items")
-async def list_items(db: AsyncSession = Depends(get_db)):
-    # Can query database if available or return memory items
-    return _in_memory_items
 
-@router.post("/items", response_model=ItemResponse, summary="Create a new demo item")
-async def create_item(payload: ItemCreate, db: AsyncSession = Depends(get_db)):
-    new_item = ItemResponse(
-        id=str(uuid.uuid4()),
-        title=payload.title,
-        description=payload.description,
-        tags=payload.tags,
-        created_at=datetime.datetime.now(datetime.timezone.utc).isoformat()
-    )
-    _in_memory_items.append(new_item)
-    return new_item
+@router.get("/incidents/{incident_id}", response_model=IncidentEvidenceView, summary="Read a locally stored incident report")
+def incident_detail(incident_id: str, session: Session = Depends(get_db)):
+    report = get_report(session, incident_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
 
-@router.get("/team", summary="Team members and strengths")
-async def get_team():
+
+@router.get("/trips", response_model=TripListResponse, summary="List locally prepared trips")
+def trips_list(
+    limit: int = Query(default=20, ge=1, le=50),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    session: Session = Depends(get_db),
+):
+    try:
+        return list_trips(session, limit, cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor") from exc
+
+
+@router.get("/trips/{trip_id}/context", response_model=TripContextResponse, summary="Read prepared trip context")
+def trip_context(
+    trip_id: str,
+    report_limit: int = Query(default=20, ge=1, le=50),
+    report_cursor: str | None = Query(default=None, min_length=1, max_length=512),
+    session: Session = Depends(get_db),
+):
+    try:
+        context = get_trip_context(session, trip_id, report_limit, report_cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor") from exc
+    if context is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return context
+
+
+@router.get("/map-data/summary", summary="Read imported map-data inventory")
+def map_data_summary(session: Session = Depends(get_db)):
+    latest_import = session.scalar(select(MapDataImport).order_by(MapDataImport.id.desc()).limit(1))
+    counts = {
+        "routes": session.scalar(select(func.count()).select_from(TransitRoute)) or 0,
+        "stops": session.scalar(select(func.count()).select_from(TransitStop)) or 0,
+        "segments": session.scalar(select(func.count()).select_from(RouteSegment)) or 0,
+        "source_files": session.scalar(select(func.count()).select_from(MapDataSourceFile)) or 0,
+    }
+    if latest_import is None:
+        return {
+            "status": "empty",
+            "source_version": None,
+            "imported_at": None,
+            "data_quality": "approximate",
+            "counts": counts,
+        }
     return {
-        "team": [
-            {
-                "name": "Pantha Protick",
-                "role": "ML & Systems Lead / Backend Engineer",
-                "strengths": ["Backend", "ML", "Database", "System"]
-            },
-            {
-                "name": "Tanvir Hasan Ratul",
-                "role": "Full-Stack Engineer",
-                "strengths": ["Backend", "Frontend", "Database"]
-            },
-            {
-                "name": "Yousha Shahid",
-                "role": "Frontend Lead",
-                "strengths": ["Frontend", "UI/UX"]
-            },
-            {
-                "name": "Partha Sarathi Saha Tirtha",
-                "role": "Full-Stack Engineer",
-                "strengths": ["Backend", "Frontend", "Database"]
-            }
-        ]
+        "status": "available",
+        "source_version": latest_import.source_version,
+        "imported_at": latest_import.imported_at,
+        "data_quality": "approximate",
+        "counts": counts,
     }

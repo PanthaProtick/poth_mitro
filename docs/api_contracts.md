@@ -1,5 +1,64 @@
 # DhakaPath API contracts
 
+- The current runtime is a single-operator local service without login.
+- SQLite persistence, migrations, map import, and database readiness are implemented.
+- `/api/v1/map-data/summary` reports only approximate source inventory and counts.
+- Trip list/context reads, incident detail read-back, and idempotent report create/update endpoints are implemented; the incident collection list remains future work.
+- Do not expose the unauthenticated service beyond loopback.
+
+> **Contract status (2026-10-16):** The current local contract is specified below. The prior hosted Clerk/workspace/Neon contract is retained only as historical reference.
+
+## Current local API contract
+
+**Quick summary:** The current product is a local, single-operator service with persistent SQLite state. There is no login, workspace, client role, Neon, or Render path. Bind both development servers to loopback.
+
+**Implementation status (2026-10-16):** Modules C, E, F, G, and H implement and locally verify SQLite configuration/schema/migrations, map import, demo seed, health and map-summary reads, trip list/context reads, and transactional incident create/update writes. Manual live-loopback checks covered write retries/conflicts, atomic rollback, migration/seed repeatability, and process-restart persistence on a disposable database. Rendered-browser acceptance remains unverified; no report-writing UI is connected yet.
+
+### Runtime and identity boundary
+
+- Browser requests use relative `/api/v1/...`; Vite proxies `/api` to FastAPI at `http://127.0.0.1:8000` and binds to `127.0.0.1:5173`.
+- FastAPI binds to `127.0.0.1:8000`. Vite binds to `127.0.0.1:5173`.
+- `DATABASE_PATH` selects the SQLite file; default `backend/data/dhakapath.db`. Missing configuration uses this documented default; connection/migration failure prevents readiness. No memory/standby write mode.
+- No authentication or user/workspace entity exists in this phase. Treat the operator actor label as constant `local_operator`; never accept identity or role fields from clients. Do not expose the app to a LAN or internet.
+- Local database fields use UUIDv4 strings for IDs, RFC 3339 UTC timestamps, nullable values as explicit JSON `null`, BDT whole-taka integers if ever added, and `snake_case` JSON. Unknown mutation properties are rejected.
+
+### Routes
+
+| Method and path | Contract |
+|---|---|
+| `GET /health/live` | `200 {"status":"live","environment":"development"}` when process is responsive. No DB claim. |
+| `GET /health/ready` | `200 {"status":"ready","database":"sqlite","scope":"local_single_operator"}` only after expected migration and bounded SQLite probe succeed; otherwise `503` with the standard error envelope and `error.code="DATABASE_UNAVAILABLE"`. |
+| `GET /api/v1/map-data/summary` | Read-only import status, source version/time, approximate quality label, and route/stop/segment/source-file counts. It returns no coordinates or geometry. Empty database returns `status:"empty"`. |
+| `GET /api/v1/trips?limit=20&cursor=...` | Local trip list ordered by `(origin,destination,id)` and displayed as `origin to destination`; `limit` integer 1–50, optional opaque cursor. Response `{items:[TripSummary],next_cursor:string|null}`; an empty list returns `items:[]`. |
+| `GET /api/v1/trips/{trip_id}/context?report_limit=20&report_cursor=...` | Trip, ordered segments (each has `route_reference_available` and nullable `route_data_quality`), paged reports linked to its stored route references, `as_of`, `evidence_total`, `reports_next_cursor`, and deterministic relevance. Missing trip is `404`; malformed cursors are `400`; limits outside 1–50 are `422`. This API returns no geometry. |
+| `GET /api/v1/incidents?status=...&limit=20&cursor=...` | Planned, not implemented: local report list, optional lifecycle status filter, ordered by `(created_at DESC,id DESC)`. |
+| `GET /api/v1/incidents/{incident_id}` | Implemented. Read back one locally stored report; missing ID returns `404 RESOURCE_NOT_FOUND`. |
+| `POST /api/v1/incidents` | Implemented. Create a report; returns `201` with persisted report data. Requires an `Idempotency-Key` UUIDv4 header. |
+| `PATCH /api/v1/incidents/{incident_id}` | Implemented. Update report with required `expected_version`, non-empty `reason`, and at least one allowed field; requires `Idempotency-Key` UUIDv4. Stale version returns `409 VERSION_CONFLICT`. |
+
+`TripSummary` fields: `id`, `name`, `is_synthetic`. Trip context includes `trip: {id,name,is_synthetic,segments:[{id,ordinal,mode,origin,destination,route_reference_available,route_data_quality}]}`; segment `id` is an integer, and segments are ordered one-based. `route_reference_available=false` explicitly means the leg is not checked against route-linked reports; `route_data_quality` is null or `approximate` for this imported source. Incident response fields include `id,kind,title,description,location,route_id,mode,direction,observed_at,age_minutes,freshness,source_type,status,is_synthetic,version,created_at,updated_at,actor_label,confirmation_note`. `route_id` is nullable; incident `mode` and `direction` may be null in evidence responses; `actor_label` is always `local_operator`, not a verified identity. Create requires `kind` (1–80), `title` (1–160), `location` (1–200), `mode` (1–80), `source_type` (`traveller_report|operator_notice|staff_observation`), and optionally `description` (max 2000), `direction` (max 120), `route_id` (existing local route), and `observed_at` (RFC 3339 with timezone). The client cannot set ID, status, version, actor, or synthetic provenance. The server sets status=`reported`, version=1, `is_synthetic=false`, timestamps, and actor label. The API preserves the submitted source label in `report_source`; the storage `source_type` remains `rider_report` for nonsynthetic user/operator reports. Update accepts `expected_version`, a non-empty `reason`, and at least one field among `kind,title,description,location,mode,direction,route_id,observed_at,status,confirmation_note`; identity and synthetic provenance cannot change. Status is `reported|confirmed|disputed|resolved`; freshness is `current` 0–30m, `aging` 31–120m, `stale` >120m, or `unknown`. Missing time, mode, or location, future/stale time, disputed/conflicting evidence, or incomplete route references preserve `unknown` relevance. These time thresholds remain assumptions, not validated evidence.
+
+### Error, write, and persistence rules
+
+- Errors use `{error:{code,message,fields},request_id,meta}`. Write errors include `400 IDEMPOTENCY_KEY_REQUIRED|INVALID_IDEMPOTENCY_KEY`; `404 RESOURCE_NOT_FOUND`; `409 VERSION_CONFLICT|IDEMPOTENCY_KEY_REUSED`; and `422 VALIDATION_ERROR`. A version conflict places `current_version` in `meta`. No auth errors exist in local scope.
+- A report mutation, its `IncidentEvent`, and its `MutationReceipt` commit in one transaction. Event rows are append-only. Repeating an idempotency key with the same method/path/canonical payload returns the original status and body; a different request with the same key returns `409 IDEMPOTENCY_KEY_REUSED`. Definitive update-not-found and version-conflict responses are receipted too.
+- SQLite is the source of truth. Seed trips/map catalog idempotently; never overwrite operator reports on reseed. Preserve provenance and `is_synthetic` labels.
+- Relevance is deterministic and conservative: `affects_trip|not_affected|unknown`; missing mode/location/time, stale/future time, disputed/conflicting evidence, and incomplete route references preserve uncertainty. A no-match is phrased “No match found in available reports,” never “safe.”
+
+### Setup contract and known starter gaps
+
+```text
+# backend/.env (local, ignored)
+DATABASE_PATH=data/dhakapath.db
+CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+```
+
+Backend commands from repository root: `cd backend`; `uv sync --locked`; `uv run alembic upgrade head`; `uv run python -m app.scripts.map_data import`; `uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000`. Frontend commands from repository root: `cd frontend`; `npm ci`; `npm run dev -- --host 127.0.0.1`. Keep the API base relative in Vite; do not put secrets in frontend env values. Local API behavior was manually exercised against a disposable database; report form/UI integration remains later work.
+
+**Implementation status:** Module C added Alembic, SQLite readiness, and `/api/v1/map-data/summary`; Module E added database-backed trip reads; Module F added report detail read-back, transactional create/update APIs, and the `20261016_02` migration; Module H verified the local runtime writes, retries, conflicts, atomic rollback, and restart persistence. Rendered-browser acceptance remains unverified; the frontend has no report creation/correction form.
+
+## Historical remote contract (not current)
+
 - **Purpose:** Freeze the browser–API–database contracts before backend implementation.
 - **Authentication:** Send a real Clerk session token as `Authorization: Bearer`; FastAPI verifies it and derives the active organization and role.
 - **Access:** Members read trips and reports; only workspace admins create or update reports; all queries are workspace-scoped.
@@ -326,9 +385,9 @@ Response `200` when the write committed:
 
 Response `200` for a definitive rejected version conflict is `{"request_key":"...","state":"rejected","resource_type":"incident","resource_id":"08356da9-7c9f-4f14-bfff-4c7e8c6f4f7b","completed_at":"2026-10-16T02:24:00Z","error_code":"VERSION_CONFLICT"}`. There is no externally visible `pending` state: success receipt and data change commit atomically; a rejected receipt commits only the rejection outcome. `404` means no completed receipt exists for this actor/workspace/key at query time. The original request could still be running; wait briefly, query again, or safely repeat the exact same POST/PATCH with the same key and canonical operation fingerprint. A unique database constraint makes that retry either return the completed outcome or perform the write once after rollback. Never generate a new key for the uncertain operation.
 
-### `GET /healthz`
+### `GET /health/live` and `GET /health/ready`
 
-**Producer:** FastAPI service. **Consumer:** Render health monitor. No session required. Return `200 {"status":"ok"}` only when process/config is ready to serve; do not expose secrets or provider details. If migrations/config prevent safe service, fail startup rather than report healthy. A deeper database readiness probe may be internal and bounded; never make every health probe wait indefinitely on Neon.
+**Producer:** FastAPI service. **Consumer:** Render health monitor and deployment tooling. No session required. `GET /health/live` reports only that the process is running and returns `200 {"status":"ok"}`; it does not prove database readiness. `GET /health/ready` returns `200 {"status":"ok"}` only when required runtime configuration is present and a bounded database probe succeeds; otherwise it returns `503` without exposing secrets or provider details. Configure Render's health check to `/health/ready`. Migration/configuration failure must prevent readiness; never let a health probe wait indefinitely on Neon.
 
 ## 5. Pydantic models
 
