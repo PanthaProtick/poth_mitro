@@ -4,8 +4,7 @@
 - Local-only access on `127.0.0.1`, for one operator without login.
 - Approximate transit reference data imported from the checked-in map files.
 - Synthetic demo records are labeled and never treated as live reports.
-- The default page is the Poth Mitro welcome screen. **Plan a journey** loads place/route geometry from SQLite and searches paths through the imported local graph; route geometry is approximate, while fare/time remain unknown because no fare table or timetable is supplied. Current saved route-linked reports appear with the options. **Trip brief** manages prepared trip context and report create/correction through the local API.
-- Successful context pages are cached in this browser for up to 30 days. If FastAPI is unavailable, the last selected trip can be restored as stale, read-only data; report writes are never queued.
+- The default page is the Poth Mitro welcome screen. **Plan a journey** loads place/route geometry from SQLite and searches paths through the imported local graph; route geometry is approximate, while fare/time remain unknown because no fare table or timetable is supplied. Current saved route-linked reports appear with the options. The commute assistant can search routes and submit unverified traveller reports.
 
 DhakaPath is being built as a local-first prototype. The current backend uses a persistent SQLite database and binds to `127.0.0.1`. Clerk, Neon, and Render are deferred. This phase supports one local operator and does not provide login or multi-user isolation.
 
@@ -35,7 +34,7 @@ npm install
 npm run dev
 ```
 
-The Vite development server binds to `127.0.0.1` and proxies `/api` requests to FastAPI on port 8000. Start the backend first and seed its local database to see the prepared synthetic trip/report. The welcome screen opens the SQLite-backed map planner; route options are searched from the imported graph, and reports linked to those routes are shown as saved records. Trip Brief creates and corrects route-linked reports through the same API. The browser's online indicator is informational only. Build checks do not establish every write, pagination, or responsive behavior.
+The Vite development server binds to `127.0.0.1` and proxies `/api` requests to FastAPI on port 8000 by default. Start the backend first and import the local map catalog. The welcome screen opens the SQLite-backed map planner; route options are searched from the imported graph, and reports linked to those routes are shown with the results. The commute assistant can create traveller reports, which remain reported and unverified. The browser's online indicator is informational only.
 
 ## Project documents
 

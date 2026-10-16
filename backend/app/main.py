@@ -18,7 +18,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
-EXPECTED_MIGRATION = "20261016_02"
+EXPECTED_MIGRATION = "20261016_04"
 
 
 def verify_database_ready() -> None:
@@ -54,7 +54,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else [],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Idempotency-Key", "If-Match"],
 )
 

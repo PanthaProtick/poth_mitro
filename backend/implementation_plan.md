@@ -476,10 +476,28 @@ Stop and report a blocker if local persistence or migration behavior cannot be m
 - **Freshness thresholds:** 30/120-minute boundaries are assumptions; do not describe them as empirically validated.
 - **Future hosting:** If hosting becomes necessary, decide database/auth provider and cross-database migration constraints before adding deployment configuration.
 
-**Status:** Modules A–H backend work remains implemented and locally verified for the bounded single-operator SQLite workflow. A later integration update connects the current frontend to trip reads and incident create/update. See the dated integration record below for changed behavior and the current verification boundary. Clerk, Neon, Render, shared-user security, and hosted readiness are deferred.
+**Status:** Modules A–H backend work remains implemented and locally verified for the bounded single-operator SQLite workflow. Module I below adds the local conversational backend, but the frontend chat surface and live Gemini provider remain unconnected/unverified. See the dated integration records for current evidence. Clerk, Neon, Render, shared-user security, and hosted readiness are deferred.
 
 ### Earlier frontend integration addendum (2026-10-16; superseded by the integration follow-up above)
 
 The active trip brief now uses the same-origin Vite `/api` proxy to read trip/context data and write incident reports. The UI supports creating route-linked reports and correcting visible non-synthetic reports with reason, status, confirmation note, optimistic version, and idempotency key. `TripSegmentView` exposes nullable `route_id` as a contextual write field; the UI requires a stored route so new reports remain visible to the trip-context read. The obsolete generic frontend API helper, its unused base-URL example, and unreferenced starter components that depended on removed endpoints were removed.
 
 At this earlier checkpoint, frontend production build, lint, Python compilation, and whitespace checks passed. The UI displayed only the first 20 trips and reports. The follow-up above adds cursor navigation and the offline context cache, and supersedes those status statements. The live backend/API loop remains blocked by uv cache access denial and missing Alembic in the existing virtual environment; only the API-unavailable screen has been inspected at desktop and narrow-mobile sizes.
+
+## 13. Module I — conversational commute backend (2026-10-16)
+
+**Quick summary:** The local API now stores chat sessions and messages, parses a bounded English/Banglish intent, and dispatches only to existing local graph/report capabilities. An optional Gemini adapter is key-ready but remains disabled until the user supplies a key.
+
+### Implemented contract
+
+- `POST /api/v1/chat/sessions` creates a random persisted session; `GET /api/v1/chat/sessions/{id}/messages` reads recent history; `POST /api/v1/chat/sessions/{id}/messages` submits a message; `DELETE /api/v1/chat/sessions/{id}` deletes state and history.
+- Session context retains last origin/destination and incomplete report intake. Default expiry is 24 hours, refreshed on message; messages are limited to 30 per session per minute per API process. The limiter is local process memory, not deployment-grade.
+- English/Banglish parser resolves place names only against the imported graph, routes through `search_journeys`, and supports known avoided places/modes, maximum transfers, preferred modes with fallback disclosure, report avoidance, and user-specified budget/student context.
+- Fares/times remain unknown outside exact source-backed demo corridor matches. Student discount is applied only to those estimate legs, assumes eligible bus service, and rounds half-taka up; no general fare or route coverage is implied.
+- Fresh non-synthetic route-linked incident records are reported with status, age, and freshness. Explicit user report commands ask for missing category/location, then reuse `create_report`; records remain `reported` and unverified.
+- Optional Gemini `generateContent` uses structured intent output only. Graph validation, fare calculations, alert status, and writes stay local. API key is read from backend environment and sent in the request header; provider timeout/error/malformed output falls back to deterministic parsing. No key/live request has been used or tested.
+- This is a backend API only; the active map planner and welcome page do not yet expose a conversational chat interface. Session IDs do not provide authentication or account isolation.
+
+### Verification evidence
+
+Six `unittest` cases pass from `backend/` with a temporary SQLite file: English/Banglish route search and follow-up, unknown fare, avoid-place/mode graph constraints, report clarification and create, route-linked fresh report reads, strict request validation, independent session history/deletion, simulated provider timeout fallback, and refusal to write when a model merely classifies a question as a report. Python source compilation passes. Migration `20261016_03` was verified against a temporary copy of the existing database, then applied to the configured active local database after confirming its resolved path was `backend/data/dhakapath.db`; the migration adds only chat tables/indexes and preserves existing data. Live HTTP verification on `127.0.0.1:8768` returned readiness 200, searched the real imported Mirpur 10 → Shahbagh graph, persisted/read two messages, and deleted the disposable session; Gemini remained disabled.

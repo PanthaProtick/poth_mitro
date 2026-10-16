@@ -3,7 +3,7 @@
 - The current runtime is a single-operator local service without login.
 - SQLite persistence, migrations, map import, and database readiness are implemented.
 - `/api/v1/map-data/summary` reports only approximate source inventory and counts.
-- `/api/v1/map-data/network` serves imported stop/route geometry; `/api/v1/journeys/search` returns graph-derived route options and current route-linked report evidence.
+- `/api/v1/map-data/network` serves imported stop/route geometry; `/api/v1/journeys/search` returns graph-derived route options and current route-linked report evidence; `/api/v1/journeys/feedback` stores local evaluation of an offered path.
 - Trip list/context reads, incident detail read-back, and idempotent report create/update endpoints are implemented; the incident collection list remains future work.
 - Do not expose the unauthenticated service beyond loopback.
 
@@ -13,7 +13,7 @@
 
 **Quick summary:** The current product is a local, single-operator service with persistent SQLite state. There is no login, workspace, client role, Neon, or Render path. Bind both development servers to loopback.
 
-**Implementation status (2026-10-16):** The local runtime provides SQLite configuration/schema/migrations, map import, demo seed, health, network catalog and graph journey-search reads, trip/context reads, and transactional incident create/update writes. The active frontend consumes these APIs, displays graph-derived options and route-linked reports, and pages/caches Trip Brief context. Live browser queries confirmed network load and multiple route options; a synthetic linked report was visibly identified. Build/lint/source compilation and diff checks pass. The disposable write/restart/conflict flow, >20-row pagination/cache reload, and responsive acceptance of the newly dynamic planner remain unverified.
+**Implementation status (2026-10-16):** The local runtime provides SQLite configuration/schema/migrations, map import, demo seed, health, network catalog and graph journey-search reads, catalog-versioned journey feedback, legacy trip/context reads, and transactional incident create/update writes. The active frontend consumes network, journey, chat, and incident APIs; it displays graph-derived options and route-linked reports and captures local route feedback. The Trip Brief frontend has been removed; its backend trip/context endpoints remain for compatibility and are unused by the current UI.
 
 ### Dynamic journey planner contract (2026-10-16)
 
@@ -21,10 +21,13 @@
 
 - `GET /api/v1/map-data/network` returns `{source_version,data_quality,places,routes,transfer_radius_m,assumptions}`. A place has stable `id`, display `name`, `[longitude,latitude]` coordinates, source stop IDs, and `route_names` for disambiguating duplicate stop labels. A route has numeric `id`, `name`, `mode`, `original_status`, `data_quality`, and ordered segment coordinate arrays. Empty catalog returns empty arrays and `source_version:null`; the UI must show the import/setup state, never a static fallback.
 - `GET /api/v1/journeys/search?origin_id=...&destination_id=...&avoid_reported_routes=false` accepts two place IDs from the network response. Place IDs must exist and differ; unknown IDs return `404`, same-place requests return `422`.
-- Search response is `{source_version,data_quality,origin,destination,options,excluded_route_ids,assumptions,demo_estimate_sources}`. Each option retains `fare_bdt:null` and `duration_minutes:null` for unsourced canonical values. An optional `demo_estimate` contains a labeled fare, a min/max moving-time range, status, and source IDs only when the requested corridor and every ordered leg match the reviewed research snapshot. Matching journey steps also carry optional `demo_estimate` components. Other corridors or changed paths have `demo_estimate:null`; demo bus fares are conditional on an unverified diesel-bus assumption.
+- Search response is `{source_version,catalog_version,data_quality,origin,destination,options,excluded_route_ids,assumptions,demo_estimate_sources}`. `catalog_version` is the imported manifest SHA-256 and changes when catalog content changes. Each option retains `fare_bdt:null` and `duration_minutes:null` for unsourced canonical values. An optional `demo_estimate` contains a labeled fare, a min/max moving-time range, status, and source IDs only when the requested corridor and every ordered leg match the reviewed research snapshot. Matching journey steps also carry optional `demo_estimate` components. Other corridors or changed paths have `demo_estimate:null`; demo bus fares are conditional on an unverified diesel-bus assumption.
 - Ranking is lexicographic and deduplicated: the fewest-transfer option minimizes inferred walk transfers then distance; the shortest option is the globally shortest path by approximate geometry. If both roles resolve to the same path, it is labeled as satisfying both, and the next distinct paths are labeled as next-shortest/alternative. Never label a longer option simply “Shortest approximate distance.”
 - A transit step identifies route/stop IDs and names and carries `[longitude,latitude]` geometry. A walk step identifies its endpoints and computed direct distance. Transit segment traversal is bidirectional because the source has no direction metadata; transfer edges are inferred between different routes within 250 m. These assumptions are returned by the API and shown in the UI.
 - Options are generated from the graph, not a fixed fixture. The service returns up to three distinct paths: fewest inferred transfers, shortest approximate geometry, and an alternate when one exists. Ties use distance and stable edge IDs. It does not claim fastest/cheapest because no schedule or fare table is present.
+- Each option includes a SHA-256 `path_fingerprint`, derived on the server from the imported `catalog_version`, origin/destination place IDs, and ordered edge kind/route/stop IDs. The fingerprint identifies that offered path in that catalog version; it is not a cryptographic proof that the route is correct.
+- `POST /api/v1/journeys/feedback` accepts `{path_fingerprint,catalog_version,origin_id,destination_id,avoid_reported_routes,verdict,correction}`. `verdict` is `works|does_not_work`; correction is optional, trimmed, max 500 characters. The server re-runs the journey search using the same report filter and accepts only a currently returned option with a matching fingerprint and catalog version. Stale catalog/path returns `409`; malformed data returns `422`. Successful submissions return a generated ID and UTC `created_at` and persist the complete offered option snapshot, including provenance/alerts, for later review. This endpoint records local single-operator feedback, not commuter-verified evidence, and does not change routing or catalog data.
+- `GET /api/v1/journeys/feedback?limit=100` returns the newest 1–200 feedback records (default 100), including route endpoints, verdict, optional correction, catalog version, path fingerprint, and creation time. Feedback is append-only and is retained in SQLite; there is no delete or edit endpoint in this phase.
 - Alerts are persisted report records linked to a route ID. They carry status, observed time, freshness, source type and synthetic provenance. They are route-level associations, not precise geospatial blockage evidence. `avoid_reported_routes=true` excludes routes with fresh, non-synthetic `reported`/`confirmed` records (0–120 minutes old); the response includes the excluded route IDs and the UI must explain this broad filter.
 - No client-provided route, fare, ETA, report, confidence, or coordinate values are accepted. The planner consumes only these API responses. The OSM raster basemap is a visual background and does not provide transit routing data.
 
@@ -812,3 +815,36 @@ Fixtures must not contain an invented user token, local role bypass, or false �
 7. Record actual provider and browser checks separately from unit/contract tests. Do not report a local fixture as proof of Clerk, Neon persistence, deployment, or multi-user isolation.
 
 **Open question:** This contract maps write permission to Clerk's built-in organization admin role for the minimum. If using a separate custom editor role is required, verify Clerk plan support and change the role enum/map before implementation; do not silently broaden write access.
+
+## 9. Implemented local commute chat (2026-10-16)
+
+This section is the current contract for the local single-operator phase and supersedes the older proposed Clerk/Neon behavior above for these endpoints. It does not add authentication or shared-user isolation.
+
+### Endpoints
+
+| Method and path | Behavior |
+|---|---|
+| `POST /api/v1/chat/sessions` | Create a persisted UUID session; response includes the session timestamps and whether optional Gemini parsing is enabled. |
+| `GET /api/v1/chat/sessions/{session_id}/messages?limit=80` | Read 1–80 recent persisted messages, oldest first within the returned page. Unknown or expired session returns `404`. |
+| `POST /api/v1/chat/sessions/{session_id}/messages` | Accept strict JSON `{ "message": string }`, 1–4000 trimmed characters. Returns both persisted messages, parsed intent, grounded domain data, and provider label. At most 30 messages per session per minute per API process; excess returns `429`. |
+| `DELETE /api/v1/chat/sessions/{session_id}` | Delete session, contextual state, and messages via SQLite cascade. Unknown session returns `404`. |
+
+Session `expires_at` defaults to 24 hours and is refreshed after each accepted message. Expired sessions are removed when accessed; creating a session also performs opportunistic expiry cleanup. There is no account/actor column because local mode is single-operator. UUIDs are not authorization tokens; bind only to loopback.
+
+### Message response
+
+`ChatMessageResponse` contains `session`, `user_message`, `assistant_message`, `intent`, `data`, and `provider`. Message role is `user|assistant`; timestamps are UTC ISO-8601 strings. `intent` is a bounded extraction result (`route_search|fare_question|alerts|report|general`) with nullable origin/destination/budget/max transfers, student flag, preferred/avoided modes and places, report avoidance, and detected language. `data` may carry the graph `journey`, report record, or route-linked report list; absent data is `{}`. The assistant content is persisted as returned so follow-up context survives a process restart.
+
+### Grounding, limitations, and writes
+
+- Place names are resolved against `GET /api/v1/map-data/network`; unknown names are clarified instead of inserted into route search. Origin/destination and avoided hubs/modes, maximum transfers, preferred modes, budget, and student flag are routed through the existing graph search or local rule handling.
+- Route geometry/distances remain approximate. Path direction is inferred bidirectionally and transfer edges are inferred within 250 m. The assistant never invents route names.
+- General fares and timetable durations are unavailable. Only exact matches to the source-annotated Mirpur 10 → Shahbagh demo overlay have estimates. Student bus discount (50%, minimum BDT 10) is applied only to those estimate legs, assuming eligibility; half-taka values are rounded up as an explicit display assumption. Budget fit is marked unverifiable when an option has no exact estimate.
+- Alerts are read from current non-synthetic route-linked incident records. `reported` remains unverified, `confirmed` preserves operator status, and route-level association is disclosed as broader than exact-location proof. No live alert source is queried.
+- Explicit report commands may ask for a missing category, mapped location, or route when a place is served by multiple routes. On completion, chat calls `create_report` with a new UUIDv4 idempotency key and `traveller_report`; the persisted status is `reported`. Chat cannot set `confirmed`, resolution, operator source, or actor authority.
+- Sessions and the last origin/destination/pending-report fields persist in SQLite. No raw API key or model response is stored. Message transcript includes the user message, so local DB access is sensitive. Delete the session to clear its transcript/context.
+- A process-local 30/minute limit bounds message volume only for one running process; it resets on restart and is not suitable as a public/deployed abuse control.
+
+### Optional Gemini intent parser
+
+Default `LLM_PROVIDER=none` uses deterministic local parsing. `LLM_PROVIDER=gemini` only activates the provider when `GEMINI_API_KEY` is non-empty. The provider receives the current message (up to 4000 characters) for structured intent extraction; it does not receive the stored graph, search routes, determine fare, confirm reports, or write data. Output fields are clamped to supported enums/ranges and all place/route values must still resolve against stored graph records. Network timeout, provider error, or malformed JSON falls back to the deterministic parser. The timeout is configurable (`GEMINI_TIMEOUT_SECONDS`, default 8); model name is configurable (`GEMINI_MODEL`). The API key is server-only and never enters a Vite variable or API response. A live provider call remains unverified until a key is supplied.

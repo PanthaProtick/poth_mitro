@@ -203,3 +203,51 @@ class MutationReceipt(Base):
     status_code: Mapped[int] = mapped_column(Integer, nullable=False)
     response_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[str] = mapped_column(String(40), nullable=False)
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+    __table_args__ = (Index("ix_chat_sessions_expires_at", "expires_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    context_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    updated_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    expires_at: Mapped[str] = mapped_column(String(40), nullable=False)
+
+    messages: Mapped[list["ChatMessage"]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="ck_chat_message_role"),
+        Index("ix_chat_messages_session_created", "session_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(12), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    intent_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(String(40), nullable=False)
+
+    session: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class JourneyFeedback(Base):
+    __tablename__ = "journey_feedback"
+    __table_args__ = (
+        CheckConstraint("verdict IN ('works', 'does_not_work')", name="ck_journey_feedback_verdict"),
+        Index("ix_journey_feedback_created", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    path_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    catalog_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    destination_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(20), nullable=False)
+    correction: Mapped[str | None] = mapped_column(String(500))
+    path_snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(String(40), nullable=False)

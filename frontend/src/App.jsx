@@ -1,13 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { AlertTriangle, ArrowRight, BusFront, CircleDollarSign, Compass, FileWarning, Footprints, LayoutDashboard, MapPin, Menu, Search, ShieldCheck, Timer, TrainFront } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Bot, BusFront, CircleDollarSign, Compass, FileWarning, Footprints, MapPin, Search, ShieldCheck, Timer, TrainFront } from 'lucide-react'
 import DhakaMap from './components/DhakaMap'
 import { journeyApi } from './services/journeyApi'
-import { tripBriefApi } from './services/tripBriefApi'
 import './App.css'
 
-const TripBriefScreen = lazy(() => import('./features/trips/TripBriefScreen'))
 const WelcomePage = lazy(() => import('./components/WelcomePage'))
+const ChatScreen = lazy(() => import('./features/chat/ChatScreen'))
 const transitions = { duration: 0.35, ease: 'easeOut' }
 
 function Planner({ network, networkState, networkError, form, setForm, onSearch, searchState, searchError, avoidReported, setAvoidReported }) {
@@ -55,7 +54,48 @@ function RouteCard({ option, selected, onSelect }) {
   </motion.button>
 }
 
-function JourneyDetails({ option, response, network }) {
+function JourneyFeedback({ option, response, avoidReported, onSubmit }) {
+  const [verdict, setVerdict] = useState('')
+  const [correction, setCorrection] = useState('')
+  const [state, setState] = useState('idle')
+  const [message, setMessage] = useState('')
+  if (!option) return null
+  const submit = async (selectedVerdict) => {
+    setState('loading')
+    setMessage('')
+    try {
+      await onSubmit({
+        pathFingerprint: option.path_fingerprint,
+        catalogVersion: response.catalog_version,
+        originId: response.origin.id,
+        destinationId: response.destination.id,
+        avoidReportedRoutes: avoidReported,
+        verdict: selectedVerdict,
+        correction: selectedVerdict === 'does_not_work' ? correction.trim() : undefined,
+      })
+      setVerdict(selectedVerdict)
+      setState('success')
+      setMessage('Saved locally against this route and catalog version.')
+    } catch (error) {
+      setState('error')
+      setMessage(error.message || 'Feedback could not be saved.')
+    }
+  }
+  return <section className="journey-feedback" aria-labelledby="journey-feedback-title">
+    <h3 id="journey-feedback-title">Does this route match the real trip?</h3>
+    <p>Local prototype feedback only. It is not commuter-verified evidence.</p>
+    {state === 'success' ? <div className="feedback-result" role="status">{message} <button type="button" onClick={() => { setState('idle'); setVerdict('') }}>Change feedback</button></div> : <>
+      <div className="feedback-actions">
+        <button type="button" disabled={state === 'loading'} onClick={() => void submit('works')}>Works for this trip</button>
+        <button type="button" disabled={state === 'loading'} onClick={() => { setVerdict('does_not_work'); setState('editing') }}>Needs correction</button>
+      </div>
+      {verdict === 'does_not_work' || state === 'editing' ? <div className="feedback-correction"><label htmlFor="route-correction">What should be corrected? (optional)</label><textarea id="route-correction" maxLength={500} value={correction} onChange={(event) => setCorrection(event.target.value)} placeholder="For example, this route does not serve the selected stop." /><button type="button" disabled={state === 'loading'} onClick={() => void submit('does_not_work')}>{state === 'loading' ? 'Saving…' : 'Save correction feedback'}</button></div> : null}
+      {state === 'error' ? <p className="feedback-error" role="alert">{message}</p> : null}
+    </>}
+  </section>
+}
+
+function JourneyDetails({ option, response, network, avoidReported, onFeedback }) {
   if (!option) return <section className="detail-panel glass-panel"><h2>{response ? 'No connected path found' : 'Search the imported network'}</h2><p className="detail-lead">{response ? 'The current imported graph has no path between these selected places under the chosen report filter.' : 'Choose two stops and find routes. Results will be calculated from the local SQLite catalog.'}</p></section>
   const estimate = option.demo_estimate
   const estimateSources = (response.demo_estimate_sources || []).filter((source) => estimate?.source_ids.includes(source.id))
@@ -70,6 +110,7 @@ function JourneyDetails({ option, response, network }) {
     {response.excluded_route_ids.length ? <p className="route-filter-note">Excluded {response.excluded_route_ids.map((id) => network?.routes.find((route) => route.id === id)?.name || `route ${id}`).join(', ')} because of fresh, non-synthetic reports. This broad route-level filter may remove a route even when the report is not on this exact segment.</p> : null}
     <details className="journey-assumptions"><summary>Data and routing assumptions</summary><ul>{response.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}</ul></details>
     <div className="detail-source"><ShieldCheck size={16} /><span><strong>Local API result</strong> · {response.source_version || 'No imported version'} · {response.data_quality} source data</span></div>
+    <JourneyFeedback key={option.path_fingerprint} option={option} response={response} avoidReported={avoidReported} onSubmit={onFeedback} />
   </motion.section>
 }
 
@@ -120,6 +161,33 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const showJourneyOnMap = async (journey) => {
+    const originId = journey?.origin?.id
+    const destinationId = journey?.destination?.id
+    if (!originId || !destinationId) return
+    setForm({ originId, destinationId })
+    setAvoidReported(false)
+    setPage('planner')
+    if (networkState === 'idle' || networkState === 'error') void loadNetwork()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    searchRequest.current?.abort()
+    const controller = new AbortController()
+    searchRequest.current = controller
+    setSearchState('loading')
+    setSearchError('')
+    try {
+      const result = await journeyApi.search({ originId, destinationId, avoidReportedRoutes: false, signal: controller.signal })
+      if (controller.signal.aborted) return
+      setSearchResult(result)
+      setSelectedId(result.options[0]?.id || null)
+      setSearchState('ready')
+    } catch (error) {
+      if (error.name === 'AbortError') return
+      setSearchState('error')
+      setSearchError(error.message || 'Could not load the route on the planner map.')
+    }
+  }
+
   useEffect(() => () => {
     networkRequest.current?.abort()
     searchRequest.current?.abort()
@@ -159,20 +227,22 @@ export default function App() {
     setSelectedId(null)
   }
 
+  const submitJourneyFeedback = (feedback) => journeyApi.submitFeedback(feedback)
+
   return <div className="app-shell">
     <header className="topbar"><div className="topbar-inner">
       <button className="product-logo logo-button" onClick={goWelcome}><span className="brand-mark"><Compass size={18} /></span><span>Poth Mitro</span></button>
       <nav aria-label="Main navigation">
         <button className={page === 'welcome' ? 'nav-active' : ''} onClick={goWelcome}><Compass size={15} /> Welcome</button>
         <button className={page === 'planner' ? 'nav-active' : ''} onClick={goPlan}><MapPin size={15} /> Plan a journey</button>
-        <button className={page === 'trip-brief' ? 'nav-active' : ''} onClick={() => setPage('trip-brief')}><LayoutDashboard size={15} /> Trip brief</button>
+        <button className={page === 'chat' ? 'nav-active' : ''} onClick={() => setPage('chat')}><Bot size={15} /> Commute assistant</button>
       </nav>
-      <div className="topbar-actions"><span className="simulated-chip"><span className="status-dot amber" /> Approximate local transit data</span><button className="account-button" onClick={() => setPage('trip-brief')}>Local reports</button><button className="mobile-menu icon-button" aria-label="Open trip brief" onClick={() => setPage('trip-brief')}><Menu size={18} /></button></div>
+      <div className="topbar-actions"><span className="simulated-chip"><span className="status-dot amber" /> Approximate local transit data</span></div>
     </div></header>
     <main className={`app-main ${page === 'welcome' ? 'welcome-main' : ''}`}>
       <AnimatePresence mode="wait">
-        {page === 'welcome' ? <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Suspense fallback={<p className="map-loading" role="status">Loading Poth Mitro…</p>}><WelcomePage onPlan={goPlan} onTripBrief={() => setPage('trip-brief')} /></Suspense></motion.div> : null}
-        {page === 'trip-brief' ? <motion.div key="trip-brief" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Suspense fallback={<p className="map-loading" role="status">Loading local trip workspace…</p>}><TripBriefScreen api={tripBriefApi} workspaceId="local-single-operator" workspaceName={null} /></Suspense></motion.div> : null}
+        {page === 'welcome' ? <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Suspense fallback={<p className="map-loading" role="status">Loading Poth Mitro…</p>}><WelcomePage onPlan={goPlan} onChat={() => setPage('chat')} /></Suspense></motion.div> : null}
+        {page === 'chat' ? <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Suspense fallback={<p className="map-loading" role="status">Loading commute assistant…</p>}><ChatScreen onShowJourney={showJourneyOnMap} /></Suspense></motion.div> : null}
         {page === 'planner' ? <motion.div key="planner" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <div className="demo-disclosure" role="note"><FileWarning size={17} /><span><strong>Network-derived planner with a research demo overlay.</strong> Fare/time estimates appear only for exact researched Mirpur 10 → Shahbagh paths. Bus fare assumes an unverified diesel service; times are approximate moving time and exclude waiting. Other searches remain unknown.</span><button className="icon-button" onClick={loadNetwork} aria-label="Refresh network catalog"><Search size={16} /></button></div>
           <div className="hero-copy"><div><span className="panel-eyebrow">DHAKA, BANGLADESH · LOCAL TRANSIT CATALOG</span><h1>Plan with the <span>available network.</span></h1><p>Select stops from the imported catalog. The API calculates connected paths and attaches saved route reports.</p></div><div className="hero-stat"><CircleDollarSign size={16} /><span><strong>Sample overlay</strong> fare and time</span></div></div>
@@ -180,7 +250,7 @@ export default function App() {
           {searchResult ? <div className="understanding-card" role="status"><div className="understanding-title">{searchResult.options.length ? `${searchResult.options.length} path${searchResult.options.length === 1 ? '' : 's'} found in the local network` : 'No path found in the imported local network'}</div><div className="understanding-items"><span><MapPin size={13} /> {searchResult.origin.name} → {searchResult.destination.name}</span><span>Source {searchResult.source_version || 'unknown'}</span><span>{searchResult.options.some((option) => option.demo_estimate) ? 'Research demo overlay · illustrative only' : 'Approximate graph · fare/time unavailable'}</span></div></div> : null}
           <div className="workspace-grid dynamic-workspace-grid">
             <section className="map-column"><div className="map-header"><div><span className="panel-eyebrow">IMPORTED TRANSIT NETWORK</span><h2>{selectedOption ? <>{searchResult.origin.name} <ArrowRight size={18} /> {searchResult.destination.name}</> : 'Dhaka route geometry'}</h2></div><div className="map-tools"><span className="map-legend"><i className="legend-dot selected-route" /> Selected route</span></div></div><DhakaMap network={network} option={selectedOption} /></section>
-            <section className="route-column"><div className="route-column-head"><div><span className="panel-eyebrow">LOCAL API RESULTS</span><h2>{searchResult?.options.length ? 'Route options' : 'Journey details'}</h2></div><span className="result-count">{searchResult?.options.length || 0} paths</span></div>{searchResult?.options.length ? <div className="route-list">{searchResult.options.map((option) => <RouteCard key={option.id} option={option} selected={option.id === selectedOption?.id} onSelect={() => setSelectedId(option.id)} />)}</div> : null}<JourneyDetails option={selectedOption} response={searchResult} network={network} /></section>
+            <section className="route-column"><div className="route-column-head"><div><span className="panel-eyebrow">LOCAL API RESULTS</span><h2>{searchResult?.options.length ? 'Route options' : 'Journey details'}</h2></div><span className="result-count">{searchResult?.options.length || 0} paths</span></div>{searchResult?.options.length ? <div className="route-list">{searchResult.options.map((option) => <RouteCard key={option.id} option={option} selected={option.id === selectedOption?.id} onSelect={() => setSelectedId(option.id)} />)}</div> : null}<JourneyDetails option={selectedOption} response={searchResult} network={network} avoidReported={avoidReported} onFeedback={submitJourneyFeedback} /></section>
           </div>
           <div className="footer-note"><span><ShieldCheck size={15} /> Route geometry comes from the imported local catalog.</span><span><FileWarning size={15} /> Sample fares/times are labeled estimates; unresearched routes remain unknown.</span></div>
         </motion.div> : null}

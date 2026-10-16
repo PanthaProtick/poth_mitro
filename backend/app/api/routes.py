@@ -4,18 +4,58 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from uuid import UUID
 
 from app.core.database import get_db
 from app.db.models import MapDataImport, MapDataSourceFile, RouteSegment, TransitRoute, TransitStop
 from app.models.schemas import (
     IncidentCreate, IncidentEvidenceView, IncidentUpdate, JourneySearchResponse,
-    TransitNetworkResponse, TripContextResponse, TripListResponse,
+    TransitNetworkResponse, TripContextResponse, TripListResponse, ChatMessageCreate,
+    ChatMessageResponse, ChatMessageView, ChatSessionCreateResponse, ChatSessionView,
+    JourneyFeedbackCreate, JourneyFeedbackView,
 )
+from app.services.chat import ChatRateLimitError, create_session as create_chat_session, delete_session as delete_chat_session, list_messages as list_chat_messages, respond as chat_respond
 from app.services.incidents import create_report, get_report, update_report
 from app.services.journeys import get_network, search_journeys
+from app.services.journey_feedback import StaleJourneyFeedback, create_feedback, list_feedback
 from app.services.trips import get_trip_context, list_trips
 
 router = APIRouter()
+
+
+@router.post("/chat/sessions", response_model=ChatSessionCreateResponse, status_code=201, summary="Create a local commute chat session")
+def chat_session_create(session: Session = Depends(get_db)):
+    return create_chat_session(session)
+
+
+@router.get("/chat/sessions/{session_id}/messages", response_model=list[ChatMessageView], summary="Read recent local chat messages")
+def chat_messages_list(
+    session_id: UUID,
+    limit: int = Query(default=80, ge=1, le=80),
+    session: Session = Depends(get_db),
+):
+    messages = list_chat_messages(session, str(session_id), limit)
+    if messages is None:
+        raise HTTPException(status_code=404, detail="Chat session not found or expired")
+    return messages
+
+
+@router.post("/chat/sessions/{session_id}/messages", response_model=ChatMessageResponse, summary="Send a message to the local commute assistant")
+def chat_message_create(session_id: UUID, request: ChatMessageCreate, session: Session = Depends(get_db)):
+    try:
+        result = chat_respond(session, str(session_id), request.message)
+    except ChatRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Chat session not found or expired")
+    return result
+
+
+@router.delete("/chat/sessions/{session_id}", status_code=204, summary="Delete a local chat session and its history")
+def chat_session_delete(session_id: UUID, session: Session = Depends(get_db)):
+    if not delete_chat_session(session, str(session_id)):
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return None
 
 
 @router.post("/incidents", status_code=201, summary="Create a locally stored incident report")
@@ -120,3 +160,19 @@ def journey_search(
     if result is None:
         raise HTTPException(status_code=404, detail="Unknown origin or destination place.")
     return result
+
+
+@router.post("/journeys/feedback", response_model=JourneyFeedbackView, status_code=201, summary="Record local feedback on an offered journey path")
+def journey_feedback_create(request: JourneyFeedbackCreate, session: Session = Depends(get_db)):
+    try:
+        return create_feedback(session, request)
+    except StaleJourneyFeedback as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/journeys/feedback", response_model=list[JourneyFeedbackView], summary="Review recent local journey feedback")
+def journey_feedback_list(
+    limit: int = Query(default=100, ge=1, le=200),
+    session: Session = Depends(get_db),
+):
+    return list_feedback(session, limit)

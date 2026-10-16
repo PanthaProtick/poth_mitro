@@ -16,7 +16,7 @@ from app.services.map_data.loader import load_sources, project_root
 from app.services.map_data.normalize import normalize_sources
 from app.services.map_data.validate import validate_manifest
 
-EXPECTED_MIGRATION = "20261016_02"
+EXPECTED_MIGRATION = "20261016_03"
 
 
 def _require_expected_migration(connection) -> None:

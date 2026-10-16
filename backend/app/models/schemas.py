@@ -162,6 +162,7 @@ class JourneyAlert(BaseModel):
 
 class JourneyOption(BaseModel):
     id: str
+    path_fingerprint: str
     ranking: str
     distance_km: float
     transfer_count: int
@@ -175,6 +176,7 @@ class JourneyOption(BaseModel):
 
 class JourneySearchResponse(BaseModel):
     source_version: Optional[str]
+    catalog_version: Optional[str]
     data_quality: str
     origin: JourneyEndpoint
     destination: JourneyEndpoint
@@ -186,6 +188,35 @@ class JourneySearchResponse(BaseModel):
 
 class StrictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class JourneyFeedbackCreate(StrictRequest):
+    path_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    catalog_version: str = Field(pattern=r"^[a-f0-9]{64}$")
+    origin_id: str = Field(min_length=1, max_length=100)
+    destination_id: str = Field(min_length=1, max_length=100)
+    avoid_reported_routes: bool = False
+    verdict: Literal["works", "does_not_work"]
+    correction: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("correction")
+    @classmethod
+    def trim_correction(cls, value: Optional[str]) -> Optional[str]:
+        value = value.strip() if value is not None else None
+        return value or None
+
+
+class JourneyFeedbackView(BaseModel):
+    id: str
+    path_fingerprint: str
+    catalog_version: str
+    origin_id: str
+    destination_id: str
+    origin_name: str
+    destination_name: str
+    verdict: Literal["works", "does_not_work"]
+    correction: Optional[str]
+    created_at: str
 
 
 class IncidentCreate(StrictRequest):
@@ -259,6 +290,47 @@ class IncidentUpdate(StrictRequest):
     @classmethod
     def normalize_update_observed_at(cls, value):
         return value.astimezone(timezone.utc) if value is not None else None
+
+
+class ChatMessageCreate(StrictRequest):
+    message: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("message")
+    @classmethod
+    def trim_chat_message(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("message must not be blank")
+        return value
+
+
+class ChatMessageView(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: str
+
+
+class ChatSessionView(BaseModel):
+    id: str
+    created_at: str
+    updated_at: str
+    expires_at: str
+
+
+class ChatSessionCreateResponse(BaseModel):
+    session: ChatSessionView
+    provider: str
+    ai_enabled: bool
+
+
+class ChatMessageResponse(BaseModel):
+    session: ChatSessionView
+    user_message: ChatMessageView
+    assistant_message: ChatMessageView
+    intent: dict
+    data: dict = Field(default_factory=dict)
+    provider: str
 
 class HealthStatus(BaseModel):
     status: str = "healthy"

@@ -137,7 +137,7 @@ def get_network(session: Session) -> dict:
     }
 
 
-def _report_age(report: IncidentReport, as_of: datetime) -> tuple[int | None, str]:
+def report_age(report: IncidentReport, as_of: datetime) -> tuple[int | None, str]:
     if not report.observed_at:
         return None, "unknown"
     try:
@@ -193,7 +193,11 @@ def _edges(stops: list[TransitStop], segments: list[RouteSegment], routes_by_id:
     return adjacency, stop_by_id
 
 
-def _find_paths(adjacency, starts: set[int], destinations: set[int], *, prioritize_transfers: bool, max_paths: int):
+def _find_paths(
+    adjacency, starts: set[int], destinations: set[int], *, prioritize_transfers: bool,
+    max_paths: int, max_transfers: int | None = None, excluded_nodes: set[int] | None = None,
+):
+    excluded_nodes = excluded_nodes or set()
     heap = []
     sequence = 0
     for node in sorted(starts):
@@ -212,6 +216,11 @@ def _find_paths(adjacency, starts: set[int], destinations: set[int], *, prioriti
         for edge in adjacency.get(node, []):
             if edge["to"] in visited:
                 continue
+            if edge["to"] in excluded_nodes:
+                continue
+            if edge["kind"] == "walk" and max_transfers is not None:
+                if sum(item["kind"] == "walk" for item in path) >= max_transfers:
+                    continue
             edge_km = edge["distance_m"] / 1000
             edge_score = (
                 (score[0] + (1 if edge["kind"] == "walk" else 0), score[1] + edge_km)
@@ -249,7 +258,11 @@ def _journey_steps(path: dict, stop_by_id: dict[int, TransitStop]) -> list[dict]
     return result
 
 
-def search_journeys(session: Session, origin_id: str, destination_id: str, avoid_reported_routes: bool) -> dict | None:
+def search_journeys(
+    session: Session, origin_id: str, destination_id: str, avoid_reported_routes: bool,
+    *, avoid_place_ids: set[str] | None = None, avoid_modes: set[str] | None = None,
+    max_transfers: int | None = None, preferred_modes: set[str] | None = None,
+) -> dict | None:
     routes_by_id, stops_by_id, segments, _places, stop_place, network_places, _network_routes, _lines, latest_import = _catalog(session)
     place_by_id = {place["id"]: place for place in network_places}
     origin, destination = place_by_id.get(origin_id), place_by_id.get(destination_id)
@@ -266,7 +279,7 @@ def search_journeys(session: Session, origin_id: str, destination_id: str, avoid
         route_id = report.route_id
         if route_id not in routes_by_id:
             continue
-        age, freshness = _report_age(report, as_of)
+        age, freshness = report_age(report, as_of)
         alerts_by_route[route_id].append({
             "id": report.id, "title": report.title, "location": report.location, "route_id": route_id,
             "mode": report.mode, "observed_at": report.observed_at, "age_minutes": age,
@@ -279,13 +292,36 @@ def search_journeys(session: Session, origin_id: str, destination_id: str, avoid
 
     excluded = sorted(blocked) if avoid_reported_routes else []
     adjacency, stop_by_id = _edges(list(stops_by_id.values()), segments, routes_by_id, set(excluded))
+    avoid_place_ids = avoid_place_ids or set()
+    avoid_modes = avoid_modes or set()
+    preferred_modes = preferred_modes or set()
     starts = {stop_id for stop_id, place in stop_place.items() if place["id"] == origin_id and stop_id in adjacency}
     destinations = {stop_id for stop_id, place in stop_place.items() if place["id"] == destination_id and stop_id in adjacency}
+    excluded_nodes = {stop_id for stop_id, place in stop_place.items() if place["id"] in avoid_place_ids}
+    if origin_id in avoid_place_ids or destination_id in avoid_place_ids:
+        raise ValueError("An avoided place cannot also be the origin or destination.")
+    if avoid_modes:
+        for node in list(adjacency):
+            adjacency[node] = [edge for edge in adjacency[node] if edge["mode"] not in avoid_modes]
+    if preferred_modes:
+        # A preference is a soft filter: try preferred transit modes plus walking,
+        # then fall back to the complete network if that subgraph has no path.
+        all_adjacency = adjacency
+        preferred_adjacency = {
+            node: [edge for edge in edges if edge["mode"] == "walk" or edge["mode"] in preferred_modes]
+            for node, edges in adjacency.items()
+        }
+        adjacency = preferred_adjacency
+    fewest, shortest = [], []
     if not starts or not destinations:
         found = []
     else:
-        fewest = _find_paths(adjacency, starts, destinations, prioritize_transfers=True, max_paths=MAX_PATHS_PER_RANKING)
-        shortest = _find_paths(adjacency, starts, destinations, prioritize_transfers=False, max_paths=MAX_PATHS_PER_RANKING)
+        fewest = _find_paths(adjacency, starts, destinations, prioritize_transfers=True, max_paths=MAX_PATHS_PER_RANKING, max_transfers=max_transfers, excluded_nodes=excluded_nodes)
+        shortest = _find_paths(adjacency, starts, destinations, prioritize_transfers=False, max_paths=MAX_PATHS_PER_RANKING, max_transfers=max_transfers, excluded_nodes=excluded_nodes)
+        if preferred_modes and not fewest and not shortest:
+            adjacency = all_adjacency
+            fewest = _find_paths(adjacency, starts, destinations, prioritize_transfers=True, max_paths=MAX_PATHS_PER_RANKING, max_transfers=max_transfers, excluded_nodes=excluded_nodes)
+            shortest = _find_paths(adjacency, starts, destinations, prioritize_transfers=False, max_paths=MAX_PATHS_PER_RANKING, max_transfers=max_transfers, excluded_nodes=excluded_nodes)
 
     def signature(path):
         return tuple((edge["kind"], edge["route_id"], edge["from"], edge["to"]) for edge in path["edges"])
@@ -330,15 +366,35 @@ def search_journeys(session: Session, origin_id: str, destination_id: str, avoid
             "route_ids": route_ids, "steps": steps, "alerts": alerts,
         })
 
+    for option in options:
+        fingerprint_material = {
+            "catalog_version": latest_import.manifest_sha256 if latest_import else None,
+            "origin_id": origin_id,
+            "destination_id": destination_id,
+            "edges": [
+                [edge["kind"], edge["route_id"], edge["from_stop"]["id"], edge["to_stop"]["id"]]
+                for edge in option["steps"]
+            ],
+        }
+        option["path_fingerprint"] = hashlib.sha256(
+            json.dumps(fingerprint_material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
     options, estimate_sources = annotate_demo_estimates(options, origin["name"], destination["name"])
 
     return {
         "source_version": latest_import.source_version if latest_import else None,
+        "catalog_version": latest_import.manifest_sha256 if latest_import else None,
         "data_quality": "approximate",
         "origin": origin,
         "destination": destination,
         "options": options,
         "demo_estimate_sources": estimate_sources,
         "excluded_route_ids": excluded,
+        "applied_constraints": {
+            "avoid_place_ids": sorted(avoid_place_ids), "avoid_modes": sorted(avoid_modes),
+            "max_transfers": max_transfers, "preferred_modes": sorted(preferred_modes),
+            "preference_fallback": bool(preferred_modes and 'all_adjacency' in locals() and adjacency is all_adjacency),
+        },
         "assumptions": ASSUMPTIONS,
     }
