@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "status": "demo_overlay_for_exact_corridor",
+  "researched_on": "2026-10-16",
+  "currency": "BDT",
+  "scope": {
+    "origin": "Mirpur 10",
+    "destination": "Shahbagh",
+    "local_api_source_version": "basic-1",
+    "warning": "The local graph uses approximate geometries, inferred transfers, and unverified bus route identities. These are comparison examples, not confirmed itineraries."
+  },
+  "method": {
+    "metro_time": "DMTCL actual 33.36 minute Uttara North-Motijheel runtime divided evenly over 15 station intervals; approximate only.",
+    "bus_time": "Synthetic bands informed by published Dhaka bus speed studies (about 7.5-14.4 km/h); not route-specific observations.",
+    "walking_time": "Synthetic 4-5 km/h on approximate graph walking edges.",
+    "total_time_excludes": ["vehicle waiting/headway", "boarding and station access", "congestion variance", "disruptions"],
+    "bus_fare": "Conditional comparison only: each bus edge assumed to be a diesel city bus subject to ৳2.70/km and ৳10 minimum. Fuel/service identity is unverified."
+  },
+  "metro_single_journey_fares": [
+    {"from": "Mirpur 10", "to": "Karwan Bazar", "fare_bdt": 40, "evidence": "secondary_matrix_and_news_report", "source_ids": ["dmtcl_fares", "prothom_alo_fares", "metrodhaka_fares"]},
+    {"from": "Mirpur 10", "to": "Shahbagh", "fare_bdt": 50, "evidence": "secondary_matrix_and_news_report", "source_ids": ["dmtcl_fares", "prothom_alo_fares", "metrodhaka_fares"]},
+    {"from": "Pallabi", "to": "Shahbagh", "fare_bdt": 60, "evidence": "secondary_matrix_attributed_to_dmtcl_dtca", "source_ids": ["dmtcl_fares", "metrodhaka_fares"]},
+    {"from": "Bangladesh Secretariat", "to": "Shahbagh", "fare_bdt": 20, "evidence": "secondary_matrix_attributed_to_dmtcl_dtca", "source_ids": ["dmtcl_fares", "metrodhaka_fares"]}
+  ],
+  "bus_rule_reported": {
+    "effective_date": "2026-09-22",
+    "diesel_city_bus_bdt_per_km": 2.7,
+    "diesel_city_bus_minimum_bdt": 10,
+    "diesel_city_minibus_bdt_per_km": 2.6,
+    "diesel_city_minibus_minimum_bdt": 8,
+    "limitations": "Diesel adjustment only; local route fuel type and operator fare identity are unknown.",
+    "source_ids": ["bdnews24_bus_fare"]
+  },
+  "paths": [
+    {
+      "path_id": "path-1",
+      "ranking": "Fewest inferred transfers",
+      "graph_distance_km": 12.8435,
+      "legs": [
+        {"mode": "bus", "route": "Bikolpo", "from": "Mirpur 10", "to": "Mirpur 12", "graph_distance_km": 2.3570, "fare_bdt": 10, "fare_status": "synthetic_conditional_diesel_minimum", "duration_minutes": {"min": 10, "max": 20}, "duration_status": "synthetic_estimate", "source_ids": ["bdnews24_bus_fare", "iccesd_bus_speed", "jica_dhaka_speed"]},
+        {"mode": "walk", "from": "Mirpur 12", "to": "Pallabi", "graph_distance_km": 0.2430, "fare_bdt": 0, "fare_status": "no_vehicle_fare", "duration_minutes": {"min": 3, "max": 4}, "duration_status": "synthetic_estimate", "source_ids": []},
+        {"mode": "metro", "route": "MRT-6", "from": "Pallabi", "to": "Shahbagh", "fare_bdt": 60, "fare_status": "sourced_secondary_station_pair", "duration_minutes": {"min": 20, "max": 21}, "duration_status": "derived_from_official_line_runtime", "source_ids": ["dmtcl_runtime", "metrodhaka_fares"]}
+      ],
+      "illustrative_total_fare_bdt": 70,
+      "fare_status": "conditional_estimate_due_to_unverified_bus_fuel_and_service",
+      "illustrative_moving_time_minutes": {"min": 33, "max": 45}
+    },
+    {
+      "path_id": "path-2",
+      "ranking": "Shortest approximate distance",
+      "graph_distance_km": 8.5955,
+      "legs": [
+        {"mode": "walk", "from": "Mirpur 10", "to": "Mirpur 10", "graph_distance_km": 0.06, "fare_bdt": 0, "fare_status": "no_vehicle_fare", "duration_minutes": {"min": 1, "max": 1}, "duration_status": "synthetic_estimate", "source_ids": []},
+        {"mode": "metro", "route": "MRT-6", "from": "Mirpur 10", "to": "Karwan Bazar", "fare_bdt": 40, "fare_status": "sourced_secondary_station_pair", "duration_minutes": {"min": 13, "max": 14}, "duration_status": "derived_from_official_line_runtime", "source_ids": ["dmtcl_runtime", "prothom_alo_fares", "metrodhaka_fares"]},
+        {"mode": "walk", "from": "Karwan Bazar", "to": "Karwan Bazar", "graph_distance_km": 0.1595, "fare_bdt": 0, "fare_status": "no_vehicle_fare", "duration_minutes": {"min": 2, "max": 3}, "duration_status": "synthetic_estimate", "source_ids": []},
+        {"mode": "bus", "route": "Uttara bus", "from": "Karwan Bazar", "to": "Shahbag", "graph_distance_km": 1.4, "fare_bdt": 10, "fare_status": "synthetic_conditional_diesel_minimum", "duration_minutes": {"min": 6, "max": 12}, "duration_status": "synthetic_estimate", "source_ids": ["bdnews24_bus_fare", "iccesd_bus_speed", "jica_dhaka_speed"]},
+        {"mode": "walk", "from": "Shahbag", "to": "Shahbagh", "graph_distance_km": 0.16, "fare_bdt": 0, "fare_status": "no_vehicle_fare", "duration_minutes": {"min": 2, "max": 3}, "duration_status": "synthetic_estimate", "source_ids": []}
+      ],
+      "illustrative_total_fare_bdt": 50,
+      "fare_status": "conditional_estimate_due_to_unverified_bus_fuel_and_service",
+      "illustrative_moving_time_minutes": {"min": 24, "max": 33}
+    },
+    {
+      "path_id": "path-3",
+      "ranking": "Alternative network path",
+      "graph_distance_km": 12.17,
+      "legs": [
+        {"mode": "walk", "from": "Mirpur 10", "to": "Mirpur 10", "graph_distance_km": 0.06, "fare_bdt": 0, "fare_status": "no_vehicle_fare", "duration_minutes": {"min": 1, "max": 1}, "duration_status": "synthetic_estimate", "source_ids": []},
+        {"mode": "metro", "route": "MRT-6", "from": "Mirpur 10", "to": "Karwan Bazar", "fare_bdt": 40, "fare_status": "sourced_secondary_station_pair", "duration_minutes": {"min": 13, "max": 14}, "duration_status": "derived_from_official_line_runtime", "source_ids": ["dmtcl_runtime", "prothom_alo_fares", "metrodhaka_fares"]},
+        {"mode": "walk", "from": "Karwan Bazar", "to": "Karwan Bazar", "graph_distance_km": 0.1595, "fare_bdt": 0, "fare_status": "no_vehicle_fare", "duration_minutes": {"min": 2, "max": 3}, "duration_status": "synthetic_estimate", "source_ids": []},
+        {"mode": "bus", "route": "Uttara bus", "from": "Karwan Bazar", "to": "Secretariat", "graph_distance_km": 2.9010, "fare_bdt": 10, "fare_status": "synthetic_conditional_diesel_minimum", "duration_minutes": {"min": 12, "max": 24}, "duration_status": "synthetic_estimate", "source_ids": ["bdnews24_bus_fare", "iccesd_bus_speed", "jica_dhaka_speed"]},
+        {"mode": "walk", "from": "Secretariat", "to": "Bangladesh Secretariat", "graph_distance_km": 0.2058, "fare_bdt": 0, "fare_status": "no_vehicle_fare", "duration_minutes": {"min": 2, "max": 3}, "duration_status": "synthetic_estimate", "source_ids": []},
+        {"mode": "metro", "route": "MRT-6", "from": "Bangladesh Secretariat", "to": "Shahbagh", "fare_bdt": 20, "fare_status": "sourced_secondary_station_pair", "duration_minutes": {"min": 4, "max": 5}, "duration_status": "derived_from_official_line_runtime", "source_ids": ["dmtcl_runtime", "metrodhaka_fares"]}
+      ],
+      "illustrative_total_fare_bdt": 70,
+      "fare_status": "conditional_estimate_due_to_unverified_bus_fuel_and_service",
+      "illustrative_moving_time_minutes": {"min": 34, "max": 50}
+    }
+  ],
+  "sources": [
+    {"id": "dmtcl_runtime", "url": "https://dmtcl.gov.bd/pages/static-pages/6922e089933eb65569e27764", "publisher": "DMTCL", "type": "official", "claim": "Actual Uttara North to Motijheel running time 33.36 minutes; 16 stations."},
+    {"id": "dmtcl_route", "url": "https://dmtcl.gov.bd/pages/static-pages/6922ddb2933eb65569e15eb8", "publisher": "DMTCL", "type": "official", "claim": "MRT-6 station order."},
+    {"id": "dmtcl_fares", "url": "https://dmtcl.gov.bd/pages/static-pages/6922df5a933eb65569e2169f", "publisher": "DMTCL", "type": "official_landing_page", "claim": "Official fare-list and fare-collection-guidelines downloads."},
+    {"id": "prothom_alo_fares", "url": "https://www.prothomalo.com/bangladesh/capital/9r9wjsxdpd", "publisher": "Prothom Alo", "type": "news_secondary", "claim": "Mirpur 10 to Karwan Bazar ৳40; Mirpur 10 to Shahbagh ৳50 from DTCA fare chart."},
+    {"id": "metrodhaka_fares", "url": "https://metrodhaka.com/fares-and-tickets/", "publisher": "MetroDhaka", "type": "secondary", "claim": "Station-pair matrix attributed to DMTCL guidelines and DTCA notification; Pallabi-Shahbagh ৳60 and Bangladesh Secretariat-Shahbagh ৳20."},
+    {"id": "bdnews24_bus_fare", "url": "https://hello.bdnews24.com/english/bangladesh/vi8979wckd", "publisher": "bdnews24", "type": "news_reporting_gazette", "claim": "Effective 2026-09-22 diesel city bus ৳2.70/km minimum ৳10; minibus ৳2.60/km minimum ৳8."},
+    {"id": "iccesd_bus_speed", "url": "https://iccesd.kuet.ac.bd/2020/Papers/TRE-4371.pdf", "publisher": "ICCESD", "type": "research_paper", "claim": "Studied Dhaka Chaka service averaged 7.5 km/h; not these routes."},
+    {"id": "jica_dhaka_speed", "url": "https://openjicareport.jica.go.jp/pdf/11996782_05.pdf", "publisher": "JICA", "type": "research_report", "claim": "Older Dhaka road network cruising speeds; measurements exclude stopping time."}
+  ]
+}

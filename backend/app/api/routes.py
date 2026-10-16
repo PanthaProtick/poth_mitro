@@ -7,8 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.db.models import MapDataImport, MapDataSourceFile, RouteSegment, TransitRoute, TransitStop
-from app.models.schemas import IncidentCreate, IncidentEvidenceView, IncidentUpdate, TripContextResponse, TripListResponse
+from app.models.schemas import (
+    IncidentCreate, IncidentEvidenceView, IncidentUpdate, JourneySearchResponse,
+    TransitNetworkResponse, TripContextResponse, TripListResponse,
+)
 from app.services.incidents import create_report, get_report, update_report
+from app.services.journeys import get_network, search_journeys
 from app.services.trips import get_trip_context, list_trips
 
 router = APIRouter()
@@ -95,3 +99,24 @@ def map_data_summary(session: Session = Depends(get_db)):
         "data_quality": "approximate",
         "counts": counts,
     }
+
+
+@router.get("/map-data/network", response_model=TransitNetworkResponse, summary="Read the imported route graph")
+def map_data_network(session: Session = Depends(get_db)):
+    return get_network(session)
+
+
+@router.get("/journeys/search", response_model=JourneySearchResponse, summary="Search routes in the imported local graph")
+def journey_search(
+    origin_id: str = Query(min_length=1, max_length=100),
+    destination_id: str = Query(min_length=1, max_length=100),
+    avoid_reported_routes: bool = Query(default=False),
+    session: Session = Depends(get_db),
+):
+    try:
+        result = search_journeys(session, origin_id, destination_id, avoid_reported_routes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown origin or destination place.")
+    return result

@@ -43,6 +43,8 @@ CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 
 The local migrations, persistence, health endpoints, catalog summary, and Vite loopback bind are implemented. Do not bind to `0.0.0.0` or use this unauthenticated local configuration on a network-facing host.
 
+**Current frontend integration contract (2026-10-16):** The browser uses relative `/api/v1/trips?limit=20&cursor=...` and `/api/v1/trips/{id}/context?report_limit=20&report_cursor=...` URLs; the Vite `/api` proxy forwards to loopback FastAPI. The UI appends cursor pages without fetching all rows, deduplicates by trip/report ID, and keeps relevance from the server response. It caches assembled per-trip context in IndexedDB under the local scope/trip key for 30 days. Cache records include schema version, `cached_at`, original server `as_of`, loaded-report count, completeness, and any next cursor. Restored records are stale and read-only. The UI separates API reachability from database-backed readiness; the browser online hint does not prevent requests. A timed-out/lost write retains the exact body/key in a tab-session recovery record without automatic replay; refresh and explicit review are required before changing an uncertain attempt. The API, browser flow, and responsive screens must be verified against a disposable database before claiming end-to-end acceptance.
+
 ## Historical hosted deployment setup (not current)
 
 - **One Render web service serves both React and FastAPI** from one origin; local Vite proxies `/api` to the same FastAPI routes.

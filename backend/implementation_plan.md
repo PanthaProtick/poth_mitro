@@ -23,7 +23,7 @@ Implemented under `backend/app/services/map_data/` and `backend/app/scripts/map_
 
 ## 1. Goal, boundaries, and source of truth
 
-**Quick summary:** This plan implements the backend side of the selected MVP locally: a single local operator reads a prepared trip and report context, then creates or updates a report in persistent local storage. It uses the checked-in map files as approximate route/station source material. Clerk authentication, shared multi-user access, Neon, Render, map UI, citywide routing, fare calculation, chat, and AI inference are deferred.
+**Quick summary:** This plan implements a local single-operator workflow with persistent trips/reports and a bounded graph search over the checked-in approximate route/station catalog. Clerk, shared multi-user access, Neon, Render, citywide validated routing, fare calculation, chat, and AI inference remain deferred. The graph search is a local prototype and preserves the source's uncertainty.
 
 Use these documents as the coordinated product and contract sources:
 
@@ -54,7 +54,7 @@ Use these documents as the coordinated product and contract sources:
 | Road CSV | Do not parse or import `Roadmap-Dhaka.csv` in this MVP. | Its 49,869 variable-width rows have no colocated schema/provenance description; parsing or using it for routing would require guesses. |
 | Coordinate handling | Normalize to named numeric `latitude` and `longitude`; convert CSV longitude/latitude explicitly. Keep source CRS/datum `unknown` unless source metadata later verifies it. | Numeric Dhaka-like ranges are only a sanity check, not proof of a CRS or positional accuracy. |
 | Catalog storage | Use reference `TransitRoute`, `TransitStop`, and `RouteSegment` records, separate from locally stored prepared `Trip` and `TripSegment` demo records. Store ordered geometry in a portable JSON text column with named coordinate fields. | SQLite has no PostgreSQL JSONB type; keep values portable for possible later migration. |
-| Trip traceability | `TripSegment.route_segment_id` is nullable; when present it references a known imported segment. Unsupported connections remain null/unknown and must not be invented by proximity. | Keep API geometry and route IDs out of responses unless the local UI contract requires them and is revised. |
+| Trip traceability | `TripSegment.route_segment_id` is nullable; when present it references a known imported segment. Unsupported connections remain null/unknown and must not be invented by proximity. | The current editor needs the linked route ID to make new reports discoverable through trip context; expose only that ID, with no geometry. |
 | Provenance | Store source file, source dataset/version, source key, checksum, import time, original route status, and `data_quality=approximate` for these map references. `is_synthetic` remains reserved for illustrative demo trips/reports, not a substitute for map source provenance. | Distinguishes assignment-reference map data from synthetic examples and from independently verified/live information. |
 | Identity entity | Omit `LocalUser` and Clerk identity tables from this phase. | No account or shared-role requirement is implemented in the local single-operator version. |
 | Health paths | Keep `/health/live`; make `/health/ready` report local database readiness. | Preserve simple health semantics while removing the Neon probe and Render-specific target. |
@@ -103,8 +103,8 @@ Stable source keys use the dataset/source identifier plus route, stop, or segmen
 **Pre-Module-A completion:** The current direction, persistence technology/path, auth boundary, local network exposure, API prefix, health semantics, and provider deferrals are explicit. Former hosted docs and team cards are marked superseded, and `backend/data/` is gitignored. Module A will turn the local API shapes, setup commands, and ownership notes into a final executable contract; it needs no provider access. This work stops before Module A begins.
 
 - `map-data-policy.md` is not needed as a separate artifact; the table and manifest contract in this plan are the source for the importer.
-- Contract/design synchronization completed: `docs/api_contracts.md` now specifies `/health/live` and `/health/ready`; `docs/architecture.md` now records the reference transit catalog and nullable internal `TripSegment.route_segment_id`. The public Trip Context response remains unchanged and contains no geometry.
-- No map geometry fields are added to `TripSegmentView`; no route planner is implied by the import.
+- Contract/design synchronization completed: `docs/api_contracts.md` specifies `/health/live` and `/health/ready`; `docs/architecture.md` records the reference transit catalog and nullable internal `TripSegment.route_segment_id`. A later frontend integration addendum exposes nullable `route_id` to support contextual report writes; it exposes no geometry.
+- No map geometry fields are added to `TripSegmentView`; this change does not imply a route planner.
 - The prior provider-gated Module A assessment below is superseded by the local-first decision. No Clerk, Neon, or Render verification is required to begin this plan.
 
 **Current code facts recorded in the project plan:** the starter has FastAPI and SQLAlchemy/asyncpg wiring, an in-memory demo item route, and a DB-optional standby path. DhakaPath routes, production Clerk verification, Alembic migrations, and real shared report writes are not yet implemented. Recheck source before making delivery claims.
@@ -283,7 +283,7 @@ Modules can overlap only where ownership and interfaces are already agreed. Map 
 | `GET /api/v1/trips` | List locally stored prepared trips in stable order; return empty array when none exist. |
 | `GET /api/v1/trips/{trip_id}/context` | Return ordered segments, relevant evidence, report freshness, relevance state/reason, and server `as_of`. |
 
-**Map-data boundary:** These endpoints may return prepared trip legs grounded in imported stops/routes, but current `TripSegmentView` has no coordinates, route ID, or geometry field. For now, the API returns only its contracted `mode`, `origin`, and `destination` fields. Do not send raw polylines or claim a rendered route map. If map visualization becomes part of the UI, revise `docs/api_contracts.md` first with exact coordinate order/CRS, nullable geometry rules, source/provenance fields, and payload-size limits.
+**Map-data boundary:** Trip context returns prepared trip legs grounded in imported stops/routes. It includes nullable `route_id` only so the report editor can link a new report to one of the selected trip's stored routes. It returns no coordinates or geometry; do not claim a rendered route map. If map visualization becomes part of the UI, revise `docs/api_contracts.md` first with exact coordinate order/CRS, nullable geometry rules, source/provenance fields, and payload-size limits.
 
 Do not implement every endpoint in the wider contract automatically. Incident collection-list and event-list routes are out of this screen's minimum; report detail read-back is added in Module F for write confirmation. Event and receipt tables remain required for safe writes.
 
@@ -443,6 +443,18 @@ Record:
 
 **Limits:** This was a manual disposable-database verification pass, not a committed automated test suite. Freshness cutoffs remain unvalidated assumptions. Existing map data is approximate with 21 known warnings. Desktop/narrow-mobile visual acceptance remains unverified; the computer-use screenshot/input attempt was blocked by the local UI helper. The UI still has no report create/correction form. Full citywide routing, fares, chat, AI, multi-user/auth, and hosted deployment are not delivered by these backend modules.
 
+### Frontend/backend integration follow-up (2026-10-16)
+
+The active UI and adapter now preserve the existing 20-row trip and report cursors and provide append controls with ID deduplication. The server relevance result remains authoritative across evidence pages. Successful context pages are assembled and saved to a scope/trip-keyed IndexedDB store (schema 1, 30-day expiry) with client cache time, original server `as_of`, loaded count, completeness, and next cursor. A restored cache remains stale and read-only; writes are never queued. API reachability and database-backed readiness are separate UI states; browser online state is informational and does not prevent a local request. Mutations retain their key/body after unknown outcomes in memory and a tab-session recovery record so a reload cannot silently replace the retry identity; the record is manual-recovery-only and is never replayed automatically. Conflict recovery requires refresh plus an explicit version-review action.
+
+**Static verification on 2026-10-16:** Frontend production build passed; lint exited successfully with four unused-variable/import warnings in inactive starter files; Python source compilation and `git diff --check` passed. The locked backend environment could not start: `uv run --locked` failed opening the configured uv cache with `Access is denied`, and the existing `.venv` does not contain Alembic. No backend migration or database was run. Browser review inspected only the real local-service-unavailable screen at 1280×800 and 360×800; mobile document width was 345 px at a 360 px viewport. API-backed write/read, >20-row pagination, persistent-cache reload, and all other state acceptance remain unverified.
+
+### Dynamic planner integration follow-up (2026-10-16)
+
+The restored welcome page now opens a live local graph planner. `GET /api/v1/map-data/network` serves the imported catalog and `GET /api/v1/journeys/search` returns approximate paths, distances, inferred transfers, and reports linked to each path's routes. The same Trip Brief API remains the write path for creating/correcting reports. The map renders catalog geometry and the selected result; synthetic seeded reports stay labeled as synthetic.
+
+The catalog importer now derives approximate straight-line MRT-6 edges from ordered station references. Direction is treated bidirectionally and transfers are inferred within 250 m. The source has no timetable or fare table, so duration and fare remain null/unknown. Live browser review confirmed a Mirpur 10–Shahbagh query returning three options after a repeat-safe catalog import; the existing trip/report rows were not changed. Frontend build/lint, Python source compilation, and `git diff --check` pass. Dynamic planner desktop/mobile review and write/restart/conflict/pagination/cache acceptance remain open.
+
 ## 11. Ownership and stop conditions
 
 **Quick summary:** Keep DB schema/auth/deployment ownership separate from endpoint/business-rule ownership. Stop and resolve a contract disagreement rather than adding a second schema or response format to make the code compile.
@@ -464,4 +476,10 @@ Stop and report a blocker if local persistence or migration behavior cannot be m
 - **Freshness thresholds:** 30/120-minute boundaries are assumptions; do not describe them as empirically validated.
 - **Future hosting:** If hosting becomes necessary, decide database/auth provider and cross-database migration constraints before adding deployment configuration.
 
-**Status:** Modules A–H are implemented and locally verified for the bounded single-operator SQLite workflow. See the Module H handoff record for verification and limits. Clerk, Neon, Render, shared-user security, and hosted readiness are deferred.
+**Status:** Modules A–H backend work remains implemented and locally verified for the bounded single-operator SQLite workflow. A later integration update connects the current frontend to trip reads and incident create/update. See the dated integration record below for changed behavior and the current verification boundary. Clerk, Neon, Render, shared-user security, and hosted readiness are deferred.
+
+### Earlier frontend integration addendum (2026-10-16; superseded by the integration follow-up above)
+
+The active trip brief now uses the same-origin Vite `/api` proxy to read trip/context data and write incident reports. The UI supports creating route-linked reports and correcting visible non-synthetic reports with reason, status, confirmation note, optimistic version, and idempotency key. `TripSegmentView` exposes nullable `route_id` as a contextual write field; the UI requires a stored route so new reports remain visible to the trip-context read. The obsolete generic frontend API helper, its unused base-URL example, and unreferenced starter components that depended on removed endpoints were removed.
+
+At this earlier checkpoint, frontend production build, lint, Python compilation, and whitespace checks passed. The UI displayed only the first 20 trips and reports. The follow-up above adds cursor navigation and the offline context cache, and supersedes those status statements. The live backend/API loop remains blocked by uv cache access denial and missing Alembic in the existing virtual environment; only the API-unavailable screen has been inspected at desktop and narrow-mobile sizes.

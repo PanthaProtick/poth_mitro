@@ -207,7 +207,8 @@ def get_trip_context(
                 {"id": segment.id, "ordinal": segment.ordinal, "mode": segment.mode,
                  "origin": segment.origin, "destination": segment.destination,
                  "route_reference_available": segment.route_segment is not None,
-                 "route_data_quality": segment.route_segment.data_quality if segment.route_segment else None}
+                 "route_data_quality": segment.route_segment.data_quality if segment.route_segment else None,
+                 "route_id": segment.route_segment.route_id if segment.route_segment else None}
                 for segment in sorted(trip.segments, key=lambda item: item.ordinal)
             ],
         },

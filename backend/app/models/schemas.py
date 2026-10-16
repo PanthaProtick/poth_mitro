@@ -22,6 +22,7 @@ class TripSegmentView(BaseModel):
     destination: str
     route_reference_available: bool
     route_data_quality: Optional[str]
+    route_id: Optional[int] = None
 
 
 class TripView(BaseModel):
@@ -65,6 +66,122 @@ class TripContextResponse(BaseModel):
     evidence_total: int
     reports_next_cursor: Optional[str]
     relevance: RelevanceView
+
+
+class NetworkPlace(BaseModel):
+    id: str
+    name: str
+    coordinates: tuple[float, float]  # longitude, latitude
+    stop_ids: List[int]
+    route_names: List[str]
+
+
+class NetworkRouteSegment(BaseModel):
+    id: int
+    coordinates: List[tuple[float, float]]  # longitude, latitude
+    data_quality: str
+
+
+class NetworkRoute(BaseModel):
+    id: int
+    name: str
+    mode: str
+    original_status: str
+    data_quality: str
+    segments: List[NetworkRouteSegment]
+
+
+class TransitNetworkResponse(BaseModel):
+    source_version: Optional[str]
+    data_quality: str
+    places: List[NetworkPlace]
+    routes: List[NetworkRoute]
+    transfer_radius_m: int
+    assumptions: List[str]
+
+
+class JourneyEndpoint(BaseModel):
+    id: str
+    name: str
+    coordinates: tuple[float, float]
+
+
+class JourneyDemoLegEstimate(BaseModel):
+    fare_bdt: int
+    fare_status: str
+    duration_min_minutes: int
+    duration_max_minutes: int
+    duration_status: str
+
+
+class JourneyStep(BaseModel):
+    kind: Literal["transit", "walk"]
+    mode: str
+    route_id: Optional[int]
+    route_name: Optional[str]
+    from_stop: JourneyEndpoint
+    to_stop: JourneyEndpoint
+    distance_km: float
+    coordinates: List[tuple[float, float]]
+    data_quality: str
+    demo_estimate: Optional[JourneyDemoLegEstimate] = None
+
+
+class JourneyDemoSource(BaseModel):
+    id: str
+    url: str
+    publisher: str
+    type: str
+    claim: str
+
+
+class JourneyDemoEstimate(BaseModel):
+    fare_bdt: int
+    fare_status: str
+    duration_min_minutes: int
+    duration_max_minutes: int
+    duration_status: str
+    is_demo: bool
+    source_ids: List[str]
+    time_scope_note: str
+
+
+class JourneyAlert(BaseModel):
+    id: str
+    title: str
+    location: str
+    route_id: int
+    mode: Optional[str]
+    observed_at: Optional[str]
+    age_minutes: Optional[int]
+    freshness: str
+    status: str
+    source_type: str
+    is_synthetic: bool
+
+
+class JourneyOption(BaseModel):
+    id: str
+    ranking: str
+    distance_km: float
+    transfer_count: int
+    fare_bdt: None = None
+    duration_minutes: None = None
+    demo_estimate: Optional[JourneyDemoEstimate] = None
+    route_ids: List[int]
+    steps: List[JourneyStep]
+    alerts: List[JourneyAlert]
+
+
+class JourneySearchResponse(BaseModel):
+    source_version: Optional[str]
+    data_quality: str
+    origin: JourneyEndpoint
+    destination: JourneyEndpoint
+    options: List[JourneyOption]
+    excluded_route_ids: List[int]
+    assumptions: List[str]
+    demo_estimate_sources: List[JourneyDemoSource] = Field(default_factory=list)
 
 
 class StrictRequest(BaseModel):

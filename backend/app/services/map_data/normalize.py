@@ -53,6 +53,7 @@ def normalize_sources(loaded: LoadedSources) -> dict[str, Any]:
     metro = source_data.get("metro", {})
     metro_key = _source_key(source_version, "route", metro.get("id", "mrt6"))
     metro_stop_keys: list[str] = []
+    metro_segment_keys: list[str] = []
     for station in metro.get("stations", []):
         stop_key = _source_key(source_version, "stop", metro.get("id", "mrt6"), station["id"])
         metro_stop_keys.append(stop_key)
@@ -68,6 +69,25 @@ def normalize_sources(loaded: LoadedSources) -> dict[str, Any]:
             "crs_datum": "unknown",
             "data_quality": "approximate",
         })
+    # The source provides MRT station order and station coordinates but no rail
+    # polylines. Preserve adjacent station connectivity as straight-line,
+    # approximate reference edges so the catalog can be searched as a graph.
+    stations = metro.get("stations", [])
+    for ordinal, (start, end) in enumerate(zip(stations, stations[1:]), start=1):
+        segment_key = _source_key(source_version, "segment", metro.get("id", "mrt6"), start["id"], end["id"], ordinal)
+        metro_segment_keys.append(segment_key)
+        segments.append({
+            "source_key": segment_key,
+            "route_key": metro_key,
+            "ordinal": ordinal,
+            "from_stop_key": _source_key(source_version, "stop", metro.get("id", "mrt6"), start["id"]),
+            "to_stop_key": _source_key(source_version, "stop", metro.get("id", "mrt6"), end["id"]),
+            "geometry": [_point([start["lat"], start["lng"]]), _point([end["lat"], end["lng"]])],
+            "source_path": loaded.json_path,
+            "source_version": source_version,
+            "data_quality": "approximate",
+            "csv_comparison": None,
+        })
     routes.append({
         "source_key": metro_key,
         "source_id": str(metro.get("id", "mrt6")),
@@ -78,7 +98,7 @@ def normalize_sources(loaded: LoadedSources) -> dict[str, Any]:
         "source_version": source_version,
         "data_quality": "approximate",
         "stop_keys": metro_stop_keys,
-        "segment_keys": [],
+        "segment_keys": metro_segment_keys,
     })
 
     for route in source_data.get("buses", []):
