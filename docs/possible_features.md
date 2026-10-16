@@ -1,14 +1,14 @@
-# Possible solution opportunities
+# Opportunity and feature candidates
 
 - Local route search, fare estimates, and rider updates already have product overlap, so repeating them is weak differentiation.
-- The stronger opportunities target evidence quality, transfer reality, full-trip affordability, or access when normal information channels fail.
-- Each opportunity is a hypothesis. The listed outcomes are ways to test it, not results already achieved.
+- Opportunities 1 and 5 are selected as the current pair to explore: disruption relevance/freshness and continuity when connectivity is lost.
+- The selected pair is an opportunity direction, not an approved feature list or implementation plan. The other opportunities remain on the future radar.
 - “Hackathon fit” estimates what this three-person team could demonstrate in the confirmed 5 hours 40 minutes; it does not mean a durable city service can be built in that time.
 - The last 20 minutes are reserved as a contingency buffer, leaving about 5 hours 20 minutes for planned work. The final presentation is 4–5 minutes plus 2 minutes of questions.
 
 ## 1. How to read these opportunities
 
-**Quick summary:** The opportunities below are different mechanisms for addressing documented limitations. None is selected as the project direction, and all need evidence from commuters or field checks.
+**Quick summary:** Opportunities 1 and 5 are selected as the current direction, but remain unverified hypotheses. The other candidates stay on the future radar; all need evidence from commuters or field checks.
 
 **Fact:** The research and comparison documents report that Jaatra advertises multimodal route planning, fares, and Pulse rider updates; Smart Route BD advertises route/fare reference; and fare tools already provide estimates. These are publisher claims and were not performance-tested in this project.
 
@@ -24,7 +24,13 @@
 
 ## 2. Candidate opportunities
 
-**Quick summary:** Seven opportunities are listed without choosing a winner. Each fit judgment assumes preparation happens before the event; none can credibly deliver citywide accuracy or sustained service in 5 hours 40 minutes.
+**Quick summary:** Opportunities 1 and 5 are the selected pair for the current direction. The others remain future possibilities; each fit judgment assumes preparation happens before the event, and none can deliver citywide accuracy or sustained service in 5 hours 40 minutes.
+
+**Decision:** Keep Opportunity 1 (incident relevance and freshness) as the central need and Opportunity 5 (journey information during connectivity loss) as a supporting need. They follow the same traveller's journey: assess a disruption, then continue with relevant trip context if connectivity fails. This pair is not yet a set of product features, screens, or technical requirements.
+
+**Reasonable inference:** Opportunity 5 is less evidenced because some local services advertise offline information. Keep it in the pair only while testing confirms a distinct user problem; if existing offline tools already solve it, drop it without changing Opportunity 1.
+
+**Future radar:** Opportunity 3 (whole-trip affordability) is the closest possible addition. Opportunities 2 and 4 depend on field evidence; Opportunity 6 depends on channel access; Opportunity 7 depends on an operating partner. Do not add them to the current scope without evidence and a coherent journey.
 
 ### Opportunity 1 — Show the evidence and age behind a disruption claim
 
@@ -156,7 +162,7 @@
 
 **Decision:** Allocate work across the three available members only after choosing one opportunity: Pantha can own backend/data/deployment, Tanvir the full-stack flow and integration, and Yousha the interface and browser review. Keep one shared contract and integrate early; do not split the team across unrelated opportunity demos.
 
-**Decision:** Do not label any opportunity “proven,” “best,” or “selected” based on desk research alone. Choose only after checking the affected user journey and comparing the current product or process directly.
+**Decision:** Opportunities 1 and 5 are selected as the current direction by the user, but they are not proven to represent a real user gap. Validate them against the affected journey and existing products before moving to feature design.
 
 **Unknown:** No baseline rates, participant measurements, user interviews, organizer scoring weights, or verified thresholds are available. A team should set success thresholds before running each test, based on its specific task and sample size. The remaining project documents' deployment and account-isolation requirements may also exceed event capacity unless setup is completed in advance; that is a delivery risk, not a reason to claim those requirements are met.
 
@@ -170,3 +176,87 @@
 - **VERIFIED FACT, technical pattern:** The [GTFS Realtime specification](https://developers.google.com/transit/gtfs-realtime/) provides a standard format for transit updates. A data format does not supply an operator feed or street verification by itself.
 - **REASONABLE INFERENCE:** Evidence history, field audits, and physical transfer checks could address weaknesses in stale, incomplete, or abstract route information if those weaknesses affect the selected users.
 - **UNKNOWN:** Whether the opportunities outperform Jaatra, Smart Route BD, existing community channels, printed materials, or staff guidance in actual Dhaka journeys. The project has not performed a hands-on product comparison or user study.
+
+## 5. Feature candidates traced to the capability tree
+
+**Quick summary:** The entries below turn the proposition capabilities into possible user-visible and technical features. Each candidate is traced to a need, a documented limitation, and the original problem; “UNJUSTIFIED” marks a broken or weak link that needs a need-level decision before the feature is accepted.
+
+**Scope:** “Core” means the central proposition cannot work without it. “Supporting” helps core behavior work reliably. “Differentiating” directly expresses the selected proposition's distinct value. “Nice-to-have” improves testing or convenience but is not essential. “High-risk experimental” depends on uncertain data or methods. A feature can have more than one label, such as **Core + Differentiating**.
+
+**Trace keys:** Original problem statements are from the organizer brief and decomposition: **P1** fragmented Dhaka multimodal travel information; **P2** fare/student-discount/connector price complexity; **P3** changing street conditions such as waterlogging and blockades; **P4** scattered, aging, and potentially inaccurate reports; **P5** risk of invented route advice; **P6** English/Banglish access and offline briefing (offline briefing is a bonus, not a core requirement). Need IDs and failure IDs refer to `docs/needs.md` (N1–N11 and F1–F10). These are source references, not proof that every need occurs often.
+
+### Capability C1 — Represent the selected trip
+
+- **User-visible feature — Show a chosen trip as ordered travel segments.** **Class:** Core. **Trace:** Feature → C1 represent trip → N1 compare complete journeys / N6 practical connections → F1 fragmented options / F6 disconnected legs → P1 Dhaka travel combines multiple transport modes and information is fragmented. **Why:** Report relevance cannot be compared to an unspecified journey.
+- **Technical feature — Store segment place, direction, and mode references.** **Class:** Core. **Trace:** Feature → C1 represent trip → N6 practical connections → F6 individual legs may not form a usable transfer → P1 multimodal travel crosses separate services. **Why:** Consistent segment references let the system compare a report with the right part of a trip.
+
+### Capability C2 — Represent disruption reports with time and place context
+
+- **User-visible feature — Show the report's observation time, affected place, direction, and mode when known.** **Class:** Core + Differentiating. **Trace:** Feature → C2 report context → N8 incident relevance → F8 report area is too general → P4 reports can be scattered and hard to apply. **Why:** A nearby incident may not affect the chosen route.
+- **Technical feature — Keep observation time, entry time, place, direction, and mode as separate fields, allowing unknown values.** **Class:** Core. **Trace:** Feature → C2 report context → N8 and N9 relevance/freshness → F8 vague context / F9 old claims appear current → P4 reports age quickly and may lack context. **Why:** Missing or copied information must not be silently converted into a precise fact.
+
+### Capability C3 — Judge relevance and communicate uncertainty
+
+- **User-visible feature — Give each report a trip-relative state: affects this trip, does not appear to affect it, or not enough information.** **Class:** Core + Differentiating. **Trace:** Feature → C3 relevance assessment → N8 relevance / N7 reassess after disruption → F8 unclear relevance / F7 change discovered late → P3 disruptions can make journeys unusable and P4 reports may be unreliable. **Why:** The central proposition is a decision about a specific trip, not a general alert list.
+- **Technical feature — Compare report segment, direction, mode, and age with trip segments using explicit rules.** **Class:** Core. **Trace:** Feature → C3 relevance assessment → N8 and N9 → F8 and F9 → P3 changing road conditions and P4 fast-aging reports. **Why:** A repeatable rule can be checked and tested; a language model should not invent whether a road or service is affected.
+
+### Capability C4 — Preserve and provide trip context without connectivity
+
+- **User-visible feature — Show a last-known trip summary when the network is unavailable, with its saved time and a clear old-data warning.** **Class:** Core to the selected pair; **UNJUSTIFIED against the current needs list**. **Trace:** Feature → C4 offline access → N11 only partially (retaining context is related, but N11 addresses repeated explanation, not network loss) → no matching offline failure is recorded in F1–F10 → P6 mentions offline briefing only as a bonus. **Why:** It is required by the chosen proposition but lacks a direct, validated need in `needs.md`; confirm the need or revise that document before treating this as a justified product feature.
+- **Technical feature — Keep a bounded last-known copy of selected trip context on the device and expose its saved time.** **Class:** Core to the selected pair; **UNJUSTIFIED against the current needs list** for the same traceability gap. **Trace:** Feature → C4 offline access → N11 partial fit → no direct offline limitation in F1–F10 → P6 optional offline briefing. **Why:** Offline access cannot work without locally available data, but the user problem and current workaround are unverified. Do not cache an alert in a way that makes it look current.
+
+### Capability C5 — Keep information traceable
+
+- **User-visible feature — Show whether a claim is a direct observation, a second-hand report, or a correction, when that information is available.** **Class:** Supporting. **Trace:** Feature → C5 traceability → N9 freshness/support and N10 conflicting sources → F9 repeated claims / F10 conflicting advice → P4 reports can be inaccurate or contradictory. **Why:** Source context helps a traveller judge support without treating popularity as truth.
+- **Technical feature — Retain source reference and report lineage (which report corrected or repeated another).** **Class:** Supporting. **Trace:** Feature → C5 traceability → N9 and N10 → F9/F10 → P4 stale and contradictory reports. **Why:** Without lineage, copied messages can look like independent confirmation.
+
+### Capability C6 — Make information age visible
+
+- **User-visible feature — Show “observed at” separately from “added at,” and mark old information as potentially stale.** **Class:** Core + Differentiating. **Trace:** Feature → C6 freshness → N9 distinguish current from old/repeated claims → F9 old reports remain influential → P4 reports quickly become outdated. **Why:** Recent posting does not prove a recent observation.
+- **Technical feature — Apply a documented age rule without treating expiry or silence as proof the incident ended.** **Class:** Core. **Trace:** Feature → C6 freshness → N9 → F9 → P4 fast-aging information. **Why:** The proposition needs honest limits; otherwise an old alert or missing alert can create false reassurance.
+
+### Capability C7 — Handle missing, conflicting, or invalid information
+
+- **User-visible feature — Display missing details and conflicting reports as unresolved.** **Class:** Supporting. **Trace:** Feature → C7 safe handling → N8 relevance / N10 conflicting sources → F8 vague reports / F10 conflicting advice → P4 report accuracy is uncertain. **Why:** The traveller needs to know when the system cannot justify a clear answer.
+- **Technical feature — Validate required fields and preserve disagreeing claims rather than overwriting one silently.** **Class:** Supporting. **Trace:** Feature → C7 safe handling → N9 and N10 → F9/F10 → P4 reports can be stale or inaccurate. **Why:** Safe failure behavior protects the core relevance judgment from bad input.
+
+### Capability C8 — Support English and Banglish
+
+- **User-visible feature — Present key status labels and explanations in English and Banglish.** **Class:** Supporting; also required by the organizer brief. **Trace:** Feature → C8 language access → N11 only for the stated risk that communication barriers can prevent conveying context → repeated/failed communication in F1/F8 → P1 fragmented travel information; organizer requirement P6. **Why:** Users must understand the status, but language support does not establish alert accuracy.
+- **Technical feature — Resolve common English/Banglish place-name variants to the same known place reference.** **Class:** Supporting. **Trace:** Feature → C8 language access → N1 compare journeys (place names must be interpretable) → F1 fragmented journey information → P1 multimodal Dhaka information is fragmented; organizer requirement for English/Banglish search. **Why:** Different spellings should not make the system compare the wrong locations. **Risk:** This needs a verified alias list; guessing transliterations can create false matches.
+
+### Capability C9 — Explain the relevance result
+
+- **User-visible feature — Give a short reason for a report status, such as matching direction or missing location detail.** **Class:** Supporting. **Trace:** Feature → C9 explain result → N8 relevance / N10 reasoned trust → F8 vague location / F10 conflicting advice → P4 reports may be hard to interpret. **Why:** A status without a reason is difficult to assess or challenge.
+- **Technical feature — Produce the explanation from the same comparison rules that produced the status.** **Class:** Supporting. **Trace:** Feature → C9 explanation consistency → N8 and N10 → F8/F10 → P4 unreliable report interpretation. **Why:** A separate generative explanation could contradict the actual comparison.
+
+### Capability C10 — Accept and preserve corrections
+
+- **User-visible feature — Let a user say that a report is outdated, incorrect, or has changed, while showing it as a claim pending review.** **Class:** Supporting. **Trace:** Feature → C10 correction learning → N9 freshness and N10 conflicting sources → F9 stale claim / F10 disagreement → P4 reports age and may be inaccurate. **Why:** Later information needs a path to challenge earlier claims; a correction should not automatically become verified truth.
+- **Technical feature — Store corrections as linked events instead of deleting the earlier report.** **Class:** Supporting. **Trace:** Feature → C10 correction history → N9 and N10 → F9/F10 → P4 old and conflicting reports. **Why:** History makes changes auditable and helps distinguish an update from independent confirmation.
+- **User-visible feature — Offer an optional compact view of earlier status changes and their sources.** **Class:** Nice-to-have. **Trace:** Feature → C10 correction history → N10 understand conflicting claims → F10 conflicting advice → P4 reports may contradict one another. **Why:** It may help a traveller who wants detail, but it is not needed to show a current status and can add clutter.
+
+### Capability C11 — Predict whether an incident will spread or end
+
+- **User-visible feature — Show a forecast of likely disruption duration or spread.** **Class:** High-risk experimental. **Trace:** Feature → C11 forecasting → N7 reassess after disruption → F7 condition changes after travel starts → P3 waterlogging and blockades affect routes. **Why:** It may help planning, but is beyond judging a current report and needs validated time-series data.
+- **Technical feature — Estimate future impact from historical and current observations, with uncertainty.** **Class:** High-risk experimental. **Trace:** Feature → C11 forecasting → N7 → F7 → P3 changing disruption conditions. **Why:** A forecast without representative history may be wrong; do not use it to imply safety or certainty.
+
+### Capability C12 — Infer report truth from text, images, or crowd patterns
+
+- **User-visible feature — Show an automated suggestion that a report may be duplicate, unsupported, or inconsistent.** **Class:** High-risk experimental. **Trace:** Feature → C12 automated evidence assessment → N9/N10 → F9 copied claims / F10 conflict → P4 inaccurate or contradictory reports; P5 risk of invented advice. **Why:** It may help review, but a machine suggestion is not confirmation.
+- **Technical feature — Compare report text or images with other reports and known places, returning a review signal rather than an authoritative truth score.** **Class:** High-risk experimental. **Trace:** Feature → C12 → N8/N9/N10 → F8/F9/F10 → P4 weak reports and P5 hallucination concern. **Why:** Requires labeled local examples and careful evaluation; otherwise it adds false precision.
+
+### Capability C13 — Recalculate alternatives after a disruption
+
+- **User-visible feature — Present an alternate trip when a report affects a selected route.** **Class:** High-risk experimental; outside the current proposition's minimum. **Trace:** Feature → C13 rerouting → N7 respond to disruption / N6 practical connections → F7/F6 → P3 disrupted roads and P1 connected multimodal trips. **Why:** It extends a relevance decision into a route decision, but the proposition does not yet promise this.
+- **Technical feature — Re-run a route search after excluding or penalizing affected segments, then recalculate time and cost.** **Class:** High-risk experimental; outside current proposition. **Trace:** Feature → C13 rerouting → N7/N6 → F7/F6 → P3/P1. **Why:** Requires accurate network, fare, and disruption-effect data. A graph route that exists in stored data may still be unusable on the street.
+
+### Traceability review
+
+**Quick summary:** Most report-context features trace directly to critical needs N8 and N9. The most important gap is offline access: it is central to the selected proposition but is not represented as a need in `needs.md` and is only an optional organizer bonus in the original brief.
+
+**UNJUSTIFIED pending need validation:** The two C4 offline features are necessary to the chosen proposition but cannot currently complete the requested chain through a documented user need and failure. Either validate and add that need before feature selection, or narrow the proposition so offline access is not promised.
+
+**Scope warning:** C11 forecasting and C13 rerouting trace to broader organizer problems, but they are not required for the proposition. C12 automated truth inference is especially risky because no verified local labels or accuracy target are available. None should be treated as part of the core feature set.
+
+**No feature selected:** These are candidates. Core classification describes what the proposition requires if retained; it does not prove that the proposition itself is worth building.
