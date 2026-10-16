@@ -1,5 +1,7 @@
 # Pantha Protick — detailed implementation work order
 
+> **Old work order superseded (2026-10-16):** This card targets the canceled Clerk + Neon + Render phase. Use the current local-first SQLite/localhost handoff in [`../implementation_plan.md`](../implementation_plan.md); confirm scope for your module before starting. The old goals below are historical.
+
 - **Role:** data, backend identity, migrations, runtime configuration, and deployment foundation.
 - **Time box:** 4 hours; first working slice must support the minute-60 real write/read gate.
 - **Success:** FastAPI verifies a real Clerk session, role-scopes a mutation, commits report + history + receipt to remote Neon, and serves a deployable image.

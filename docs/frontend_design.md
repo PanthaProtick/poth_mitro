@@ -1,10 +1,12 @@
 # DhakaPath frontend design
 
-- **Story:** A commuter opens a shared trip brief, selects a prepared journey, and checks whether a time-stamped disruption applies to it.
-- **Primary screen:** One focused trip brief; no overview dashboard, map wallpaper, fake counters, or decorative charts.
-- **First action:** Choose a trip and select “Check this trip”; the page loads the real API context and shows a supported result or “not enough information.”
-- **Trust cues:** Show when and where a report was observed, its source type, freshness, uncertainty, and whether sample route/report values are synthetic.
-- **Design boundary:** This is a screen contract and one representative traveller screen. Report edits must persist through FastAPI/Neon; a browser-only change must never look saved.
+- **Current user scope:** One operator on one local machine; no sign-in, shared workspace, roles, or network access.
+- **Current screen:** The default page loads locally prepared trips and their stored report context. The development-only preview remains explicitly synthetic.
+- **Current API connection:** Module E connects the Trip Brief to local SQLite-backed trip list/context read endpoints. Module F adds report create/update API endpoints, but the UI does not yet expose those writes.
+- **Trust cues:** Map references are approximate; synthetic demo values are labeled and are not shown as live reports.
+- **Design boundary:** Do not present the old hosted multi-user workflow below as current behavior. Visual acceptance remains pending because the computer-use screenshot/input helper failed during Module D.
+
+> **Scope update (2026-10-16):** The detailed user journeys below were written for the superseded Clerk/Neon shared-workspace design. The user canceled Clerk and Neon and directed local-first implementation. Module D changed the active screen and Vite bind to local-only; Module E connected trip/report reads and Module F added backend report writes. The UI remains read-only. Keep older hosted-flow details in the earlier sections as historical design context, not current product claims. Rendered-screen visual acceptance remains unverified.
 
 ## 1. Concrete user story and design decision
 

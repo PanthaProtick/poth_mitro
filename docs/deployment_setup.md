@@ -1,5 +1,50 @@
 # DhakaPath MVP deployment setup
 
+- Current setup is local; hosted deployment and provider accounts are deferred.
+- Configure a persistent SQLite file with `DATABASE_PATH`.
+- Apply Alembic migrations before starting FastAPI.
+- Import the validated approximate map references and optional synthetic seed.
+- Bind FastAPI and Vite to loopback; no login or shared-user boundary exists.
+
+> **Status update (2026-10-16):** Deployment setup is deferred. The user canceled Clerk and Neon for the current phase and directed local-first implementation. Use [`../backend/implementation_plan.md`](../backend/implementation_plan.md) for local SQLite and localhost setup. Nothing in this guide is a current setup requirement; do not configure provider secrets or Render for this phase.
+
+## Current local setup (authoritative)
+
+**Quick summary:** Run FastAPI and Vite in separate local terminals. Both listen only on loopback. No provider keys or database service are needed.
+
+1. Create `backend/.env` from the local example below; this file is ignored by Git. The SQLite file is created under `backend/data/` by the implemented local database setup.
+2. Backend terminal, from repository root:
+
+   ```powershell
+   Set-Location backend
+   uv sync --locked
+   uv run alembic upgrade head
+   uv run python -m app.scripts.map_data import
+   uv run python -m app.scripts.map_data seed-demo
+   uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+   ```
+
+3. Frontend terminal, from repository root:
+
+   ```powershell
+   Set-Location frontend
+   npm ci
+   npm run dev -- --host 127.0.0.1
+   ```
+
+4. Open `http://127.0.0.1:5173`. Check `/health/live` and `/health/ready` on port 8000. Liveness is process-only; readiness returns `503 DATABASE_UNAVAILABLE` until the expected migration and bounded SQLite probe succeed.
+
+Local `backend/.env` shape:
+
+```dotenv
+DATABASE_PATH=data/dhakapath.db
+CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+```
+
+The local migrations, persistence, health endpoints, catalog summary, and Vite loopback bind are implemented. Do not bind to `0.0.0.0` or use this unauthenticated local configuration on a network-facing host.
+
+## Historical hosted deployment setup (not current)
+
 - **One Render web service serves both React and FastAPI** from one origin; local Vite proxies `/api` to the same FastAPI routes.
 - **Both local and deployed apps use remote Neon PostgreSQL.** Use separate development and deployment branches, plus an isolated test branch.
 - **Real Clerk sign-in and server-side organization/role checks are required** for the shared traveller/editor workflow.

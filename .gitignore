@@ -5,6 +5,7 @@
 *.env
 
 # Python / uv
+backend/data/
 __pycache__/
 *.py[cod]
 *$py.class
