@@ -1,5 +1,7 @@
 # Tanvir Hasan Ratul — detailed implementation work order
 
+> **Old work order superseded (2026-10-16):** This card targets the canceled Clerk + Neon + Render phase. Use the current local-first SQLite/localhost handoff in [`../implementation_plan.md`](../implementation_plan.md); confirm scope for your module before starting. The old goals below are historical.
+
 - **Role:** product API, deterministic logic, browser/API integration, tests, and integration lead.
 - **Time box:** 4 hours; keep the first request executable by minute 45 and proven by minute 60.
 - **Success:** A real Clerk member reads a trip, an admin saves a report to Neon, and a second member sees the change after refresh.

@@ -193,8 +193,8 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
             <span>DhakaPath</span>
           </a>
           <div className="account-context">
-            <div className="workspace-caption">Shared workspace</div>
-            <div className="workspace-name">{workspaceName || 'No active workspace'}</div>
+            <div className="workspace-caption">{demo ? 'SYNTHETIC PREVIEW' : 'LOCAL ACCESS'}</div>
+            <div className="workspace-name">{demo ? workspaceName || 'Synthetic local preview' : 'This device only'}</div>
           </div>
         </div>
       </header>
@@ -204,7 +204,7 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
           <div>
             <p className="eyebrow">TRIP INFORMATION</p>
             <h1>Trip brief</h1>
-            <p className="intro-copy">Check saved reports against one journey. Missing reports do not mean a route is clear.</p>
+            <p className="intro-copy">Use this prototype from this computer. Trip and report details come from its local database.</p>
           </div>
           {demo ? <span className="demo-chip"><Info size={15} aria-hidden="true" /> Synthetic preview</span> : null}
         </div>
@@ -213,8 +213,8 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
           <section className="access-panel" aria-labelledby="access-title">
             <div className="access-icon"><CircleHelp size={22} aria-hidden="true" /></div>
             <div>
-              <h2 id="access-title">Sign in to open a shared trip</h2>
-              <p>This screen needs an active Clerk workspace. The current starter does not yet connect its Clerk session to the trip API, so no trip data is shown.</p>
+              <h2 id="access-title">Local-only prototype</h2>
+              <p>This app is intended for one operator on this computer. It has no sign-in or shared workspace.</p>
             </div>
           </section>
         ) : (
@@ -245,12 +245,12 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
               </div>
               {tripError ? (
                 <div className="inline-error" role="alert">
-                  <span>{tripError.status === 401 ? 'Sign in again to load workspace trips.' : tripError.status === 403 ? 'This account cannot read trips in this workspace.' : 'Trip information could not be loaded.'}</span>
+                  <span>Trip information could not be loaded.</span>
                   {isOnline ? <button className="text-button" onClick={handleRetryTrips}>Try again</button> : null}
                 </div>
               ) : null}
               {trips.length === 0 && !loadingTrips && !tripError ? (
-                <p className="helper-copy">No prepared trips are available in this workspace yet.</p>
+                <p className="helper-copy">No prepared trips are available yet.</p>
               ) : null}
               <div className="check-row">
                 <p className="helper-copy">The comparison uses saved trip and report details.</p>
@@ -263,7 +263,7 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
 
             {contextError && !context ? (
               <InlineStatus kind="error" icon={AlertTriangle}>
-                <strong>{contextError.status === 401 ? 'Your session needs attention.' : contextError.status === 403 ? 'You do not have access to this workspace.' : 'Trip information is unavailable right now.'}</strong>
+                <strong>Trip information is unavailable right now.</strong>
                 <span> No new result is available. Try again when the connection or access issue is resolved.</span>
               </InlineStatus>
             ) : null}
@@ -307,6 +307,7 @@ function TripBriefContent({ api, workspaceId, workspaceName, demo = false }) {
                           <div className="segment-copy">
                             <span className="segment-mode">{segment.mode || 'Mode not provided'}</span>
                             <span className="segment-route">{segment.origin || 'Start not provided'} <ArrowRight size={14} aria-hidden="true" /> {segment.destination || 'End not provided'}</span>
+                            {segment.route_reference_available === false ? <span className="helper-copy">Route reference unavailable; this leg is not checked against route-linked reports.</span> : segment.route_data_quality === 'approximate' ? <span className="helper-copy">Approximate stored route reference</span> : null}
                           </div>
                           {index < tripSegments.length - 1 ? <ArrowDown className="segment-down" size={16} aria-hidden="true" /> : null}
                         </li>

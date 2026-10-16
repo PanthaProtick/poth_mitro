@@ -1,5 +1,7 @@
 # Yousha Shahid — detailed implementation work order
 
+> **Old work order superseded (2026-10-16):** This card targets the canceled Clerk + Neon + Render phase. Use the current local-first SQLite/localhost handoff in [`../implementation_plan.md`](../implementation_plan.md); confirm scope for your module before starting. The old goals below are historical.
+
 - **Role:** Trip Brief and editor UI, responsive/accessibility quality, and actual browser acceptance.
 - **Time box:** 4 hours; agree API props in the first 15 minutes; inspect actual browser at desktop and narrow mobile before release.
 - **Success:** A traveller understands trip relevance, evidence and age; an admin can submit a report change and sees only server-confirmed outcomes.

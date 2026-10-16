@@ -1,101 +1,45 @@
-﻿# Hackathon Project Starter
+# DhakaPath local prototype
 
-A high-velocity, production-ready hackathon workspace powered by **React**, **FastAPI**, **Neon Serverless Postgres**, **Google Gemini AI**, and Astral's **uv** package manager.
+- Persistent local SQLite backend with versioned Alembic migrations.
+- Local-only access on `127.0.0.1`, for one operator without login.
+- Approximate transit reference data imported from the checked-in map files.
+- Synthetic demo records are labeled and never treated as live reports.
+- Trip/report workflows and browser-to-database integration are still in progress.
 
----
+DhakaPath is being built as a local-first prototype. The current backend uses a persistent SQLite database and binds to `127.0.0.1`. Clerk, Neon, and Render are deferred. This phase supports one local operator and does not provide login or multi-user isolation.
 
-## 🚀 Tech Stack Overview
+## Backend quickstart
 
-- **Frontend:** [React](https://react.dev/) + [Vite](https://vitejs.dev/) + Modern Glassmorphic UI & Lucide Icons
-- **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python 3.11+, Pydantic v2, Async/Await)
-- **Database:** [Neon](https://neon.tech/) Serverless PostgreSQL via SQLAlchemy Async + asyncpg
-- **AI / LLM:** Google Gemini (`google-genai` SDK with structured JSON schemas and conversational chat)
-- **Project Manager:** [`uv`](https://github.com/astral-sh/uv) (ultra-fast virtual environment and dependency manager)
+Prerequisites: Python 3.12 or newer and [`uv`](https://docs.astral.sh/uv/).
 
----
-
-## 📁 Repository Structure
-
-```text
-├── backend/
-│   ├── app/
-│   │   ├── api/             # FastAPI route handlers (endpoints)
-│   │   │   └── routes.py    # Health check, Gemini chat, idea generator, items CRUD
-│   │   ├── core/            # Configuration and database connection
-│   │   │   ├── config.py    # Pydantic BaseSettings
-│   │   │   └── database.py  # Async SQLAlchemy session manager
-│   │   ├── models/          # Schemas & data contracts
-│   │   │   └── schemas.py   # Request/response validation models
-│   │   ├── services/        # Service integrations
-│   │   │   └── gemini.py    # Google Gemini client & structured generator
-│   │   └── main.py          # FastAPI application entrypoint & CORS
-│   ├── pyproject.toml       # Managed by uv
-│   ├── uv.lock              # Lockfile for reproducible builds
-│   ├── .env.example         # Backend environment variables
-│   └── .env
-├── frontend/
-│   ├── src/
-│   │   ├── components/      # UI components (Header, Playground, Team, Data Explorer)
-│   │   ├── services/        # Frontend API client
-│   │   ├── App.jsx          # Dashboard application
-│   │   └── index.css        # Modern dark-theme glassmorphism CSS
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── .env.example
-│   └── .env
-├── docs/
-│   ├── team_skills.md       # Team roster, roles, and workstream allocations
-│   └── prefered_stacks.md   # Architectural breakdown and specifications
-└── README.md
-```
-
----
-
-## ⚡ Quickstart
-
-### 1. Backend (FastAPI + uv)
-
-```bash
+```powershell
 cd backend
-
-# uv manages the environment and dependencies automatically:
-uv run uvicorn app.main:app --reload --port 8000
+uv sync --locked
+uv run alembic upgrade head
+uv run python -m app.scripts.map_data validate --summary-only
+uv run python -m app.scripts.map_data import
+uv run python -m app.scripts.map_data seed-demo
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
-- Interactive API Docs (Swagger): [http://localhost:8000/docs](http://localhost:8000/docs)
-- Alternative ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-### 2. Frontend (React + Vite)
+The SQLite file defaults to `backend/data/dhakapath.db` and is ignored by Git. Set `DATABASE_PATH` in `backend/.env` to use another persistent local file. `DATABASE_PATH` may be a path relative to `backend/` or an absolute path; in-memory SQLite is rejected. Apply migrations before starting the API. Readiness is available at `/health/ready`; liveness is at `/health/live`; interactive API documentation is at `/docs`.
 
-```bash
+The map validator/importer treats `Map Data/json/transit-data.json` as canonical. The Bikolpo/Uttara CSV files are comparison evidence only; Metro/Road CSV files are inventoried but excluded. Data is approximate, not live or independently verified. `seed-demo` adds one clearly synthetic sample trip and report; repeated calls do not create duplicates or overwrite edited reports.
+
+## Frontend
+
+```powershell
 cd frontend
-
-# Install dependencies (if not already installed)
 npm install
-
-# Start local dev server
 npm run dev
 ```
-- App UI: [http://localhost:5173](http://localhost:5173)
 
----
+The UI is still a prototype and is not yet connected to the persistent local API.
 
-## 🔑 Environment Variables
+## Project documents
 
-### Backend (`backend/.env`)
-```env
-PROJECT_NAME="Hackathon Starter API"
-ENV="development"
-DEBUG=True
-DATABASE_URL="postgresql+asyncpg://<username>:<password>@<neon-hostname>/<dbname>?sslmode=require"
-GEMINI_API_KEY="your-gemini-api-key"
-GEMINI_MODEL="gemini-2.5-flash"
-CORS_ORIGINS=["http://localhost:5173", "http://127.0.0.1:5173"]
-```
-
-> **Note:** The backend automatically operates in standby / mock mode if `GEMINI_API_KEY` or `DATABASE_URL` is omitted, allowing you to develop UI workflows immediately without waiting for API keys.
-
----
-
-## 👥 Team & Workstreams
-
-See [docs/team_skills.md](docs/team_skills.md) for full member skill breakdown, domain matrices, and hackathon workstream ownership.
+- [Backend implementation plan](backend/implementation_plan.md)
+- [API contracts](docs/api_contracts.md)
+- [Architecture](docs/architecture.md)
+- [MVP scope](docs/mvp.md)
+- [Project checkpoint](AGENTS.md)

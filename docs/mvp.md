@@ -1,5 +1,28 @@
 # Four-hour MVP plan
 
+- The intended local MVP is one operator reviewing a prepared trip and reports.
+- SQLite persistence and map-data import infrastructure are implemented.
+- Seeded trip/report examples are synthetic and clearly labeled.
+- Trip read APIs and report create/update APIs are implemented; report editing UI is not connected yet.
+- Citywide routing, fare calculation, chat, deployment, and multi-user access remain out of scope.
+
+> **Scope update (2026-10-16):** The user canceled Clerk and Neon and directed a local-first implementation. For the current phase, use the local single-operator scope, SQLite persistence, and localhost-only service boundary in [`../backend/implementation_plan.md`](../backend/implementation_plan.md). Render and hosted auth/database are deferred. The hosted multi-user workflow, provider requirements, and schedule below are historical and must not be treated as current implementation requirements.
+
+## Current local MVP (authoritative)
+
+**Quick summary:** One local operator chooses a prepared trip, reviews approximate route references and locally stored disruption reports, and creates or updates a report. The app runs on the same machine and stores changes in SQLite.
+
+**Implementation status (2026-10-16):** The backend has persistent SQLite schema/migrations, map import, clearly synthetic demo seeding, trip list/context reads, and report create/update endpoints with event history and idempotency receipts. The default UI reads trip context but does not yet create or edit reports. Runtime write/concurrency scenarios and rendered-screen acceptance remain unverified.
+
+- **Workflow:** Select a prepared trip; inspect ordered segments and report freshness/relevance; create or correct a report; refresh and see the persisted result. If the service is unreachable, show a clear error and retain only the last successful view as stale.
+- **Access:** No sign-in, user roles, or shared workspace. The API binds to localhost; it is not safe to expose to a LAN or public internet.
+- **Persistence:** SQLite at `backend/data/dhakapath.db` by default, configurable with `DATABASE_PATH`, ignored by Git. A missing/invalid database must cause a readiness error, never process-memory success.
+- **Map data:** Import only the approximate JSON stations and bus references specified in the backend plan. Bus CSVs are comparison evidence; metro geometry and undocumented road CSV are excluded.
+- **Limitations:** No citywide route planning, fare calculation, chat/AI, live transit data, network deployment, authentication, or multi-user isolation. Synthetic seed data must be labeled.
+- **Current acceptance baseline:** local migrations, persistent report/event writes across restart, accurate and explicit unknown/freshness states, clear errors, and inspected responsive UI. No claim that the organizer's complete challenge scope has been met.
+
+The sections after this current-scope block record the earlier hosted/multi-user proposition and are retained only as historical product analysis.
+
 - **Smallest coherent workflow:** An authorized traveller selects one prepared Dhaka trip, checks whether a shared disruption report applies, and can still read the last-loaded trip and report context if connectivity drops.
 - **Keep Opportunities 1 and 5 together only in this bounded form:** They use the same trip and report data; offline means the already-loaded page remains readable, not fresh alerts or offline edits.
 - **Core decision:** Use transparent rules to return “affects this trip,” “does not appear to affect this trip,” or “not enough information.” Never guess that a route is safe.
